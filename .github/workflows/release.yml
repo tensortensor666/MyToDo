@@ -61,7 +61,7 @@ jobs:
           test -n "$MYTODO_ANDROID_KEY_PASSWORD"
           echo "$MYTODO_ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/mytodo-release.jks
           printf '%s\n' \
-            'storeFile=app/mytodo-release.jks' \
+            'storeFile=mytodo-release.jks' \
             "storePassword=$MYTODO_ANDROID_KEYSTORE_PASSWORD" \
             "keyAlias=$MYTODO_ANDROID_KEY_ALIAS" \
             "keyPassword=$MYTODO_ANDROID_KEY_PASSWORD" \
