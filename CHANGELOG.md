@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 - 2026-06-27
+
+- Fixed Android QR pairing crash in release builds by disabling R8 minification for Android dependencies.
+- Added a Chinese scanner error fallback with retry and manual pairing actions.
+
 ## 1.1.0 - 2026-06-26
 
 - Added Windows system tray support with show, hide, sync, and quit actions.

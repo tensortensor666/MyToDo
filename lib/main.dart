@@ -1666,7 +1666,15 @@ class PairScannerPage extends StatefulWidget {
 }
 
 class _PairScannerPageState extends State<PairScannerPage> {
+  late final MobileScannerController _scannerController =
+      MobileScannerController();
   bool _handled = false;
+
+  @override
+  void dispose() {
+    _scannerController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1684,6 +1692,8 @@ class _PairScannerPageState extends State<PairScannerPage> {
         ],
       ),
       body: MobileScanner(
+        controller: _scannerController,
+        errorBuilder: _buildScannerError,
         onDetect: (capture) {
           if (_handled) {
             return;
@@ -1695,6 +1705,74 @@ class _PairScannerPageState extends State<PairScannerPage> {
           _handled = true;
           Navigator.of(context).pop(code);
         },
+      ),
+    );
+  }
+
+  Widget _buildScannerError(
+    BuildContext context,
+    MobileScannerException error,
+  ) {
+    final message = switch (error.errorCode) {
+      MobileScannerErrorCode.permissionDenied => '没有相机权限，无法扫码配对。',
+      MobileScannerErrorCode.unsupported => '当前设备不支持扫码。',
+      _ => '相机启动失败，请重试或使用手动配对。',
+    };
+    final detail = error.errorDetails?.message;
+
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.qr_code_scanner, color: Colors.white, size: 44),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (detail != null && detail.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                detail,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+            const SizedBox(height: 22),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              alignment: WrapAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: () {
+                    _scannerController.start();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重试'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await widget.onManualPair();
+                  },
+                  icon: const Icon(Icons.edit),
+                  label: const Text('手动配对'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

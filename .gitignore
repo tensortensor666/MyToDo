@@ -50,6 +50,7 @@ app.*.map.json
 /mytodo_*.xml
 /screen-*.png
 /smoke-*.xml
+/scanner_*.xml
 /ui-*.png
 /ui-*.xml
 /window*.xml

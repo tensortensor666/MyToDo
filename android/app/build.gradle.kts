@@ -26,12 +26,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
-            )
+            // R8 minification currently breaks ML Kit barcode scanning on some
+            // Android release builds. Keep Java/Kotlin dependencies intact so
+            // QR pairing remains reliable.
+            isMinifyEnabled = false
+            isShrinkResources = false
 
             // Signed with the debug key for GitHub preview releases.
             // Replace this with a private release keystore before Play Store distribution.
