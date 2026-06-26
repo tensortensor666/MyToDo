@@ -40,14 +40,20 @@ keytool `
   -dname "CN=MyTodo, OU=Release, O=MyTodo, L=Local, ST=Local, C=CN"
 
 $base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $keystorePath)))
+$secretsPath = Join-Path $OutputDir "github-secrets.txt"
+$secretLines = @(
+  "MYTODO_ANDROID_KEYSTORE_BASE64=$base64",
+  "MYTODO_ANDROID_KEYSTORE_PASSWORD=$storePassword",
+  "MYTODO_ANDROID_KEY_ALIAS=$Alias",
+  "MYTODO_ANDROID_KEY_PASSWORD=$keyPassword"
+)
+[IO.File]::WriteAllLines((Join-Path (Resolve-Path $OutputDir) "github-secrets.txt"), $secretLines)
 
 Write-Host ""
 Write-Host "Android release keystore created: $keystorePath"
+Write-Host "GitHub secret values written to: $secretsPath"
 Write-Host ""
 Write-Host "Add these GitHub repository secrets:"
-Write-Host "MYTODO_ANDROID_KEYSTORE_BASE64=$base64"
-Write-Host "MYTODO_ANDROID_KEYSTORE_PASSWORD=$storePassword"
-Write-Host "MYTODO_ANDROID_KEY_ALIAS=$Alias"
-Write-Host "MYTODO_ANDROID_KEY_PASSWORD=$keyPassword"
+$secretLines | ForEach-Object { Write-Host $_ }
 Write-Host ""
 Write-Host "Keep $keystorePath and these passwords. Losing them means future APKs cannot update installed apps."

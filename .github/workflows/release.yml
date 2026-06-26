@@ -60,6 +60,11 @@ jobs:
           test -n "$MYTODO_ANDROID_KEY_ALIAS"
           test -n "$MYTODO_ANDROID_KEY_PASSWORD"
           echo "$MYTODO_ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/mytodo-release.jks
+          keytool -list \
+            -keystore android/app/mytodo-release.jks \
+            -storepass "$MYTODO_ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$MYTODO_ANDROID_KEY_ALIAS" \
+            >/dev/null
 
       - name: Build split APKs
         env:
