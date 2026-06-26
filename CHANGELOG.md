@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0 - 2026-06-27
+
+- Added an in-app update checker for Android and Windows.
+- Added official GitHub downloads plus selectable domestic accelerated mirrors.
+- Defaulted Chinese-region clients to an accelerated download source while keeping SHA256 checksum access.
+
 ## 1.1.1 - 2026-06-27
 
 - Fixed Android QR pairing crash in release builds by disabling R8 minification for Android dependencies.

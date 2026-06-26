@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'src/app_controller.dart';
 import 'src/data/todo_models.dart';
 import 'src/desktop/windows_tray.dart';
+import 'src/update/update_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -157,6 +158,11 @@ class _TodoHomeState extends State<TodoHome> {
                       icon: const Icon(Icons.search),
                     ),
                     IconButton(
+                      tooltip: '检查更新',
+                      onPressed: _openUpdatePage,
+                      icon: const Icon(Icons.system_update),
+                    ),
+                    IconButton(
                       tooltip: '同步和设备',
                       onPressed: _openSyncPage,
                       icon: const Icon(Icons.devices),
@@ -210,6 +216,12 @@ class _TodoHomeState extends State<TodoHome> {
         builder: (_) => SyncDevicesPage(controller: widget.controller),
       ),
     );
+  }
+
+  Future<void> _openUpdatePage() async {
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => const UpdatePage()));
   }
 }
 
