@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - 2026-06-26
+
+- Added Windows system tray support with show, hide, sync, and quit actions.
+- Added close-to-tray behavior for the Windows app.
+- Added Windows installer packaging to the GitHub Release workflow.
+
 ## 1.0.2 - 2026-06-26
 
 - Added GitHub Actions automation for publishing APK and Windows release assets.

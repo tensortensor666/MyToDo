@@ -30,4 +30,5 @@ git tag -a v1.0.1 -m "MyTodo 1.0.1"
 git push origin main --tags
 ```
 
-The release workflow uploads split Android APKs and a Windows x64 zip. The zip contains `mytodo.exe` plus the Flutter runtime files required to run it.
+The release workflow uploads split Android APKs, a Windows x64 zip, and a Windows installer. The zip contains `mytodo.exe` plus the Flutter runtime files required to run it.
+The Windows installer is built with Inno Setup from `installer/windows/MyTodo.iss`.

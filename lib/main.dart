@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,9 +8,11 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'src/app_controller.dart';
 import 'src/data/todo_models.dart';
+import 'src/desktop/windows_tray.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeWindowsWindow();
   runApp(const MyTodoApp());
 }
 
@@ -89,8 +92,20 @@ class TodoHome extends StatefulWidget {
 }
 
 class _TodoHomeState extends State<TodoHome> {
+  WindowsTrayController? _windowsTrayController;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isWindows) {
+      _windowsTrayController = WindowsTrayController(widget.controller);
+      unawaited(_windowsTrayController!.initialize());
+    }
+  }
+
   @override
   void dispose() {
+    _windowsTrayController?.dispose();
     widget.controller.dispose();
     super.dispose();
   }
