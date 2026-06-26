@@ -1,19 +1,25 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-fun env(name: String): String = System.getenv(name).orEmpty()
-
-fun hasReleaseSigning(): Boolean {
-    return listOf(
-        "MYTODO_ANDROID_KEYSTORE_PATH",
-        "MYTODO_ANDROID_KEYSTORE_PASSWORD",
-        "MYTODO_ANDROID_KEY_ALIAS",
-        "MYTODO_ANDROID_KEY_PASSWORD",
-    ).all { env(it).isNotBlank() }
+val releaseSigningProperties = Properties()
+val releaseSigningPropertiesFile = rootProject.file("key.properties")
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.inputStream().use {
+        releaseSigningProperties.load(it)
+    }
 }
+
+fun signingProperty(name: String): String =
+    releaseSigningProperties.getProperty(name).orEmpty()
+
+fun hasReleaseSigning(): Boolean =
+    listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .all { signingProperty(it).isNotBlank() }
 
 android {
     namespace = "com.tensortensor666.mytodo"
@@ -37,12 +43,12 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = env("MYTODO_ANDROID_KEYSTORE_PATH")
+            val keystorePath = signingProperty("storeFile")
             if (keystorePath.isNotBlank()) {
                 storeFile = file(keystorePath)
-                storePassword = env("MYTODO_ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = env("MYTODO_ANDROID_KEY_ALIAS")
-                keyPassword = env("MYTODO_ANDROID_KEY_PASSWORD")
+                storePassword = signingProperty("storePassword")
+                keyAlias = signingProperty("keyAlias")
+                keyPassword = signingProperty("keyPassword")
             }
         }
     }

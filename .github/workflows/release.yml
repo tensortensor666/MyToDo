@@ -60,6 +60,12 @@ jobs:
           test -n "$MYTODO_ANDROID_KEY_ALIAS"
           test -n "$MYTODO_ANDROID_KEY_PASSWORD"
           echo "$MYTODO_ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/mytodo-release.jks
+          cat > android/key.properties <<EOF
+          storeFile=app/mytodo-release.jks
+          storePassword=$MYTODO_ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$MYTODO_ANDROID_KEY_ALIAS
+          keyPassword=$MYTODO_ANDROID_KEY_PASSWORD
+          EOF
           keytool -list \
             -keystore android/app/mytodo-release.jks \
             -storepass "$MYTODO_ANDROID_KEYSTORE_PASSWORD" \
@@ -67,11 +73,6 @@ jobs:
             >/dev/null
 
       - name: Build split APKs
-        env:
-          MYTODO_ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/mytodo-release.jks
-          MYTODO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.MYTODO_ANDROID_KEYSTORE_PASSWORD }}
-          MYTODO_ANDROID_KEY_ALIAS: ${{ secrets.MYTODO_ANDROID_KEY_ALIAS }}
-          MYTODO_ANDROID_KEY_PASSWORD: ${{ secrets.MYTODO_ANDROID_KEY_PASSWORD }}
         run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/symbols/android
 
       - name: Prepare Android artifacts
