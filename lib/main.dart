@@ -145,7 +145,7 @@ class _TodoHomeState extends State<TodoHome> {
           ),
           _SyncTodosIntent: CallbackAction<_SyncTodosIntent>(
             onInvoke: (_) {
-              widget.controller.sync.syncAllTrustedDevices();
+              unawaited(_syncFromHome(showResult: true));
               return null;
             },
           ),
@@ -185,6 +185,7 @@ class _TodoHomeState extends State<TodoHome> {
                         controller: widget.controller,
                         scrollTodos: true,
                         onAddTodo: _showAddTodoDialog,
+                        onRefresh: _syncFromHome,
                       ),
                     ),
                   ),
@@ -243,6 +244,26 @@ class _TodoHomeState extends State<TodoHome> {
       context,
     ).push<void>(MaterialPageRoute(builder: (_) => const UpdatePage()));
   }
+
+  Future<void> _syncFromHome({bool showResult = false}) async {
+    try {
+      await widget.controller.sync.syncAllTrustedDevices();
+      if (widget.controller.supabaseSync.config.canSync) {
+        await widget.controller.supabaseSync.syncNow();
+      }
+      if (showResult && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('同步完成')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('同步失败: $error')));
+      }
+    }
+  }
 }
 
 class _AddTodoIntent extends Intent {
@@ -262,11 +283,13 @@ class _TodoPanel extends StatelessWidget {
     required this.controller,
     required this.scrollTodos,
     required this.onAddTodo,
+    this.onRefresh,
   });
 
   final AppController controller;
   final bool scrollTodos;
   final VoidCallback onAddTodo;
+  final Future<void> Function()? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -284,7 +307,14 @@ class _TodoPanel extends StatelessWidget {
       children: [
         _TodoOverview(todos: todos),
         const SizedBox(height: 16),
-        if (scrollTodos) Expanded(child: list) else list,
+        if (scrollTodos)
+          Expanded(
+            child: onRefresh == null
+                ? list
+                : RefreshIndicator(onRefresh: onRefresh!, child: list),
+          )
+        else
+          list,
       ],
     );
   }
@@ -401,6 +431,25 @@ class _TodoList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (todos.isEmpty) {
+      if (!shrinkWrap) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 96),
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: _TodoEmptyState(
+                    label: emptyLabel,
+                    onAddTodo: onAddTodo,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      }
       return _TodoEmptyState(label: emptyLabel, onAddTodo: onAddTodo);
     }
     final children = historyMode
@@ -408,7 +457,9 @@ class _TodoList extends StatelessWidget {
         : _buildGroupedChildren(context);
     return ListView(
       shrinkWrap: shrinkWrap,
-      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+      physics: shrinkWrap
+          ? const NeverScrollableScrollPhysics()
+          : const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.only(bottom: historyMode ? 16 : 96),
       children: children,
     );

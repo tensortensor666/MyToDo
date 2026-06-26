@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3 - 2026-06-27
+
+- Added pull-to-refresh sync on the main task list.
+- Kept pull-to-refresh available even when the task list is empty.
+
 ## 1.3.2 - 2026-06-27
 
 - Changed Android release builds to require a stable release keystore from GitHub Secrets.
