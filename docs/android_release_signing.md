@@ -17,6 +17,13 @@ Run from the repository root on Windows:
 .\scripts\create_android_release_keystore.ps1
 ```
 
+To replace a bad or partially copied key before any stable-signed APK has been
+published:
+
+```powershell
+.\scripts\create_android_release_keystore.ps1 -Force
+```
+
 The script creates `android/signing/mytodo-release.jks` and prints four GitHub
 repository secrets:
 

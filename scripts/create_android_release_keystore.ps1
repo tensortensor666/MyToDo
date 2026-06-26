@@ -1,6 +1,7 @@
 param(
   [string]$Alias = "mytodo",
-  [string]$OutputDir = "android/signing"
+  [string]$OutputDir = "android/signing",
+  [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,8 +9,11 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $keystorePath = Join-Path $OutputDir "mytodo-release.jks"
 
-if (Test-Path $keystorePath) {
+if ((Test-Path $keystorePath) -and -not $Force) {
   throw "Keystore already exists: $keystorePath"
+}
+if ((Test-Path $keystorePath) -and $Force) {
+  Remove-Item -LiteralPath $keystorePath -Force
 }
 
 function New-Password {
