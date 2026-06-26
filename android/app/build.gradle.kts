@@ -4,6 +4,17 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+fun env(name: String): String = System.getenv(name).orEmpty()
+
+fun hasReleaseSigning(): Boolean {
+    return listOf(
+        "MYTODO_ANDROID_KEYSTORE_PATH",
+        "MYTODO_ANDROID_KEYSTORE_PASSWORD",
+        "MYTODO_ANDROID_KEY_ALIAS",
+        "MYTODO_ANDROID_KEY_PASSWORD",
+    ).all { env(it).isNotBlank() }
+}
+
 android {
     namespace = "com.tensortensor666.mytodo"
     compileSdk = flutter.compileSdkVersion
@@ -24,6 +35,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = env("MYTODO_ANDROID_KEYSTORE_PATH")
+            if (keystorePath.isNotBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = env("MYTODO_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = env("MYTODO_ANDROID_KEY_ALIAS")
+                keyPassword = env("MYTODO_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // R8 minification currently breaks ML Kit barcode scanning on some
@@ -32,9 +55,13 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
 
-            // Signed with the debug key for GitHub preview releases.
-            // Replace this with a private release keystore before Play Store distribution.
-            signingConfig = signingConfigs.getByName("debug")
+            // CI release builds must provide a stable keystore through
+            // GitHub Secrets so APKs can be upgraded without reinstalling.
+            signingConfig = if (hasReleaseSigning()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

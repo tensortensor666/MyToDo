@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2 - 2026-06-27
+
+- Changed Android release builds to require a stable release keystore from GitHub Secrets.
+- Added Android release signing documentation and a local keystore generation script.
+- Prevented CI from publishing APKs with unstable debug signatures.
+
 ## 1.3.1 - 2026-06-27
 
 - Removed bundled Supabase project URL and publishable key from the release build.
