@@ -15,6 +15,8 @@
 *.rc text eol=lf
 *.properties text eol=lf
 *.pro text eol=lf
+/android/gradlew text eol=lf
+*.bat text eol=crlf
 
 *.png binary
 *.ico binary

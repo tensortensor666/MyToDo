@@ -20,3 +20,14 @@ flutter build windows --release
 ```
 
 For Android phones, use the `app-arm64-v8a-release.apk` artifact unless the device specifically needs another ABI.
+
+## Release
+
+Push a version tag to build and publish a GitHub Release automatically:
+
+```powershell
+git tag -a v1.0.1 -m "MyTodo 1.0.1"
+git push origin main --tags
+```
+
+The release workflow uploads split Android APKs and a Windows x64 zip. The zip contains `mytodo.exe` plus the Flutter runtime files required to run it.

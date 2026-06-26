@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 - 2026-06-26
+
+- Replaced the default launcher icon with a branded MyTodo icon for Android and Windows.
+
 ## 1.0.0 - 2026-06-26
 
 - Initial local-first TODO prototype for Android and Windows.
