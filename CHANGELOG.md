@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 - 2026-06-26
+
+- Added GitHub Actions automation for publishing APK and Windows release assets.
+- Included Gradle wrapper files so Android builds work in CI.
+
 ## 1.0.1 - 2026-06-26
 
 - Replaced the default launcher icon with a branded MyTodo icon for Android and Windows.
