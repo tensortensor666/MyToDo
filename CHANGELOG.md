@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1 - 2026-06-27
+
+- Removed bundled Supabase project URL and publishable key from the release build.
+- Added optional automatic Supabase remote sync after local changes and periodic background sync.
+
 ## 1.3.0 - 2026-06-27
 
 - Added configurable Supabase remote sync using the REST API and publishable keys.

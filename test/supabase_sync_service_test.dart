@@ -91,6 +91,7 @@ void main() {
       await service.saveConfig(
         SupabaseSyncConfig(
           enabled: true,
+          autoSync: false,
           restUrl: 'http://127.0.0.1:${server.port}/rest/v1',
           publishableKey: 'publishable',
           tableName: 'mytodo_events',
@@ -123,7 +124,8 @@ void main() {
     await service.saveConfig(
       const SupabaseSyncConfig(
         enabled: true,
-        restUrl: SupabaseSyncConfig.defaultRestUrl,
+        autoSync: false,
+        restUrl: 'https://example.supabase.co/rest/v1',
         publishableKey: 'sb_secret_do_not_use',
         tableName: 'mytodo_events',
         syncSpace: 'test-space',
@@ -131,5 +133,14 @@ void main() {
     );
 
     expect(service.syncNow(), throwsA(isA<FormatException>()));
+  });
+
+  test('default configuration contains no project URL or key', () {
+    final config = SupabaseSyncConfig.defaults();
+
+    expect(config.restUrl, isEmpty);
+    expect(config.publishableKey, isEmpty);
+    expect(config.enabled, isFalse);
+    expect(config.autoSync, isTrue);
   });
 }

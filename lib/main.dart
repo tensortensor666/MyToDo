@@ -1118,6 +1118,7 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
     final tableController = TextEditingController(text: config.tableName);
     final spaceController = TextEditingController(text: config.syncSpace);
     var enabled = config.enabled;
+    var autoSync = config.autoSync;
     try {
       final result = await showDialog<SupabaseSyncConfig>(
         context: context,
@@ -1140,6 +1141,17 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
                         onChanged: (value) {
                           setDialogState(() => enabled = value);
                         },
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('自动同步'),
+                        subtitle: const Text('本地任务变化后自动上传，并每 5 分钟补偿同步'),
+                        value: autoSync,
+                        onChanged: enabled
+                            ? (value) {
+                                setDialogState(() => autoSync = value);
+                              }
+                            : null,
                       ),
                       const SizedBox(height: 8),
                       TextField(
@@ -1195,6 +1207,7 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
                       Navigator.of(context).pop(
                         SupabaseSyncConfig(
                           enabled: enabled,
+                          autoSync: autoSync,
                           restUrl: restUrlController.text,
                           publishableKey: keyController.text,
                           tableName: tableController.text,
@@ -1454,6 +1467,7 @@ class _SupabaseSyncSection extends StatelessWidget {
         _InfoRow(label: '地址', value: config.restUrl),
         _InfoRow(label: '表', value: config.tableName),
         _InfoRow(label: '空间', value: config.syncSpace),
+        _InfoRow(label: '自动', value: config.autoSync ? '开启' : '关闭'),
         const SizedBox(height: 8),
         _StatusPill(text: controller.supabaseSync.status),
         const SizedBox(height: 12),

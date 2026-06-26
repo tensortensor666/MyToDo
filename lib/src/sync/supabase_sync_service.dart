@@ -12,20 +12,21 @@ import '../data/todo_store.dart';
 class SupabaseSyncConfig {
   const SupabaseSyncConfig({
     required this.enabled,
+    required this.autoSync,
     required this.restUrl,
     required this.publishableKey,
     required this.tableName,
     required this.syncSpace,
   });
 
-  static const defaultRestUrl =
-      'https://tffgdhypxbzbicwocjnc.supabase.co/rest/v1';
-  static const defaultPublishableKey =
-      'sb_publishable_96RRvcuiGoLQkyI78HSs6g_J5g1Z8Nq';
+  static const defaultRestUrl = '';
+  static const defaultPublishableKey = '';
   static const defaultTableName = 'mytodo_events';
   static const defaultSyncSpace = 'default';
+  static const defaultAutoSync = true;
 
   final bool enabled;
+  final bool autoSync;
   final String restUrl;
   final String publishableKey;
   final String tableName;
@@ -40,6 +41,7 @@ class SupabaseSyncConfig {
 
   SupabaseSyncConfig copyWith({
     bool? enabled,
+    bool? autoSync,
     String? restUrl,
     String? publishableKey,
     String? tableName,
@@ -47,6 +49,7 @@ class SupabaseSyncConfig {
   }) {
     return SupabaseSyncConfig(
       enabled: enabled ?? this.enabled,
+      autoSync: autoSync ?? this.autoSync,
       restUrl: restUrl ?? this.restUrl,
       publishableKey: publishableKey ?? this.publishableKey,
       tableName: tableName ?? this.tableName,
@@ -57,6 +60,7 @@ class SupabaseSyncConfig {
   static SupabaseSyncConfig defaults() {
     return const SupabaseSyncConfig(
       enabled: false,
+      autoSync: defaultAutoSync,
       restUrl: defaultRestUrl,
       publishableKey: defaultPublishableKey,
       tableName: defaultTableName,
@@ -73,15 +77,15 @@ class SupabaseSyncResult {
 }
 
 class SupabaseSyncService extends ChangeNotifier {
-  SupabaseSyncService(this.store, {http.Client? client})
-    : _client = client ?? http.Client();
-
   static const _enabledKey = 'supabaseSync.enabled';
+  static const _autoSyncKey = 'supabaseSync.autoSync';
   static const _restUrlKey = 'supabaseSync.restUrl';
   static const _publishableKeyKey = 'supabaseSync.publishableKey';
   static const _tableNameKey = 'supabaseSync.tableName';
   static const _syncSpaceKey = 'supabaseSync.syncSpace';
   static const _requestTimeout = Duration(seconds: 15);
+  static const _autoSyncDelay = Duration(seconds: 6);
+  static const _periodicAutoSyncInterval = Duration(minutes: 5);
 
   final TodoStore store;
   final http.Client _client;
@@ -89,6 +93,15 @@ class SupabaseSyncService extends ChangeNotifier {
   SupabaseSyncConfig _config = SupabaseSyncConfig.defaults();
   String _status = 'Supabase remote sync disabled';
   bool _busy = false;
+  bool _closed = false;
+  bool _ignoreStoreChanges = false;
+  Timer? _autoSyncDebounce;
+  Timer? _periodicAutoSync;
+
+  SupabaseSyncService(this.store, {http.Client? client})
+    : _client = client ?? http.Client() {
+    store.addListener(_onStoreChanged);
+  }
 
   SupabaseSyncConfig get config => _config;
   String get status => _status;
@@ -98,6 +111,8 @@ class SupabaseSyncService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _config = SupabaseSyncConfig(
       enabled: prefs.getBool(_enabledKey) ?? false,
+      autoSync:
+          prefs.getBool(_autoSyncKey) ?? SupabaseSyncConfig.defaultAutoSync,
       restUrl:
           prefs.getString(_restUrlKey) ?? SupabaseSyncConfig.defaultRestUrl,
       publishableKey:
@@ -113,12 +128,14 @@ class SupabaseSyncService extends ChangeNotifier {
           ? 'Supabase remote sync ready'
           : 'Supabase remote sync disabled',
     );
+    _configureAutoSync();
   }
 
   Future<void> saveConfig(SupabaseSyncConfig config) async {
     final normalized = _normalizeConfig(config);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_enabledKey, normalized.enabled);
+    await prefs.setBool(_autoSyncKey, normalized.autoSync);
     await prefs.setString(_restUrlKey, normalized.restUrl);
     await prefs.setString(_publishableKeyKey, normalized.publishableKey);
     await prefs.setString(_tableNameKey, normalized.tableName);
@@ -129,6 +146,10 @@ class SupabaseSyncService extends ChangeNotifier {
           ? 'Supabase remote sync ready'
           : 'Supabase remote sync disabled',
     );
+    _configureAutoSync();
+    if (normalized.canSync && normalized.autoSync) {
+      _scheduleAutoSync();
+    }
   }
 
   Future<void> testConnection() async {
@@ -148,13 +169,57 @@ class SupabaseSyncService extends ChangeNotifier {
     final config = _normalizeConfig(_config);
     _validateConfig(config);
     return _runBusy('Syncing with Supabase', () async {
+      _ignoreStoreChanges = true;
       final remoteEvents = await _fetchRemoteEvents(config);
       final pulled = await store.applyRemoteEvents(remoteEvents);
       final localEvents = await store.allEvents();
       final pushed = await _pushLocalEvents(config, localEvents);
+      _ignoreStoreChanges = false;
       _setStatus('Supabase synced: pulled $pulled, pushed $pushed');
       return SupabaseSyncResult(pulled: pulled, pushed: pushed);
     });
+  }
+
+  void _onStoreChanged() {
+    if (_ignoreStoreChanges || _busy || !_config.canSync || !_config.autoSync) {
+      return;
+    }
+    _scheduleAutoSync();
+  }
+
+  void _configureAutoSync() {
+    _autoSyncDebounce?.cancel();
+    _periodicAutoSync?.cancel();
+    _autoSyncDebounce = null;
+    _periodicAutoSync = null;
+    if (!_config.canSync || !_config.autoSync) {
+      return;
+    }
+    _periodicAutoSync = Timer.periodic(_periodicAutoSyncInterval, (_) {
+      _scheduleAutoSync();
+    });
+  }
+
+  void _scheduleAutoSync() {
+    if (_closed || !_config.canSync || !_config.autoSync) {
+      return;
+    }
+    _autoSyncDebounce?.cancel();
+    _autoSyncDebounce = Timer(_autoSyncDelay, () {
+      unawaited(_autoSyncNow());
+    });
+  }
+
+  Future<void> _autoSyncNow() async {
+    if (_closed || _busy || !_config.canSync || !_config.autoSync) {
+      return;
+    }
+    try {
+      await syncNow();
+    } catch (_) {
+      // Status is already updated by syncNow. Automatic sync should not surface
+      // unhandled errors from background timers.
+    }
   }
 
   Future<List<TodoEvent>> _fetchRemoteEvents(SupabaseSyncConfig config) async {
@@ -307,6 +372,7 @@ class SupabaseSyncService extends ChangeNotifier {
       _setStatus('Supabase sync failed: $error');
       rethrow;
     } finally {
+      _ignoreStoreChanges = false;
       _busy = false;
       notifyListeners();
     }
@@ -319,11 +385,18 @@ class SupabaseSyncService extends ChangeNotifier {
   }
 
   void _setStatus(String value) {
+    if (_closed) {
+      return;
+    }
     _status = value;
     notifyListeners();
   }
 
   void close() {
+    _closed = true;
+    store.removeListener(_onStoreChanged);
+    _autoSyncDebounce?.cancel();
+    _periodicAutoSync?.cancel();
     _client.close();
   }
 }
