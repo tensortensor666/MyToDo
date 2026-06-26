@@ -9,6 +9,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'src/app_controller.dart';
 import 'src/data/todo_models.dart';
 import 'src/desktop/windows_tray.dart';
+import 'src/search/history_search.dart';
+import 'src/sync/supabase_sync_service.dart';
 import 'src/update/update_page.dart';
 
 Future<void> main() async {
@@ -84,9 +86,14 @@ class _AppBootstrapState extends State<AppBootstrap> {
 }
 
 class TodoHome extends StatefulWidget {
-  const TodoHome({super.key, required this.controller});
+  const TodoHome({
+    super.key,
+    required this.controller,
+    this.enableWindowsTray = true,
+  });
 
   final AppController controller;
+  final bool enableWindowsTray;
 
   @override
   State<TodoHome> createState() => _TodoHomeState();
@@ -98,7 +105,7 @@ class _TodoHomeState extends State<TodoHome> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isWindows) {
+    if (Platform.isWindows && widget.enableWindowsTray) {
       _windowsTrayController = WindowsTrayController(widget.controller);
       unawaited(_windowsTrayController!.initialize());
     }
@@ -198,7 +205,20 @@ class _TodoHomeState extends State<TodoHome> {
   Future<void> _openHistorySearch() async {
     await showSearch<void>(
       context: context,
-      delegate: _TodoHistorySearchDelegate(controller: widget.controller),
+      delegate: TodoHistorySearchDelegate(
+        listenable: widget.controller,
+        searchTodos: widget.controller.store.searchTodos,
+        itemBuilder: (context, todo) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _TodoTile(
+              todo: todo,
+              controller: widget.controller,
+              historyMode: true,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -951,198 +971,6 @@ class _DateTimeField extends StatelessWidget {
   }
 }
 
-enum _HistoryFilter { all, active, completed, deleted }
-
-class _TodoHistorySearchDelegate extends SearchDelegate<void> {
-  _TodoHistorySearchDelegate({required this.controller})
-    : super(searchFieldLabel: '搜索历史');
-
-  final AppController controller;
-  _HistoryFilter _filter = _HistoryFilter.all;
-
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    if (query.isEmpty) {
-      return null;
-    }
-    return [
-      IconButton(
-        tooltip: '清除',
-        onPressed: () {
-          query = '';
-          showSuggestions(context);
-        },
-        icon: const Icon(Icons.close),
-      ),
-    ];
-  }
-
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      tooltip: '返回',
-      onPressed: () => close(context, null),
-      icon: const Icon(Icons.arrow_back),
-    );
-  }
-
-  @override
-  Widget buildResults(BuildContext context) {
-    return _TodoSearchResults(
-      controller: controller,
-      query: query,
-      filter: _filter,
-      onFilterChanged: (filter) {
-        _filter = filter;
-        showResults(context);
-      },
-    );
-  }
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    return _TodoSearchResults(
-      controller: controller,
-      query: query,
-      filter: _filter,
-      onFilterChanged: (filter) {
-        _filter = filter;
-        showSuggestions(context);
-      },
-    );
-  }
-}
-
-class _TodoSearchResults extends StatelessWidget {
-  const _TodoSearchResults({
-    required this.controller,
-    required this.query,
-    required this.filter,
-    required this.onFilterChanged,
-  });
-
-  final AppController controller;
-  final String query;
-  final _HistoryFilter filter;
-  final ValueChanged<_HistoryFilter> onFilterChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final normalizedQuery = query.trim();
-        final todos = controller.store
-            .searchTodos(normalizedQuery)
-            .where(_matchesFilter)
-            .toList(growable: false);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _HistoryFilterBar(filter: filter, onFilterChanged: onFilterChanged),
-            const Divider(height: 1),
-            Expanded(
-              child: todos.isEmpty
-                  ? Center(
-                      child: Text(
-                        normalizedQuery.isEmpty ? '还没有历史' : '没有匹配的历史',
-                      ),
-                    )
-                  : _TodoList(
-                      todos: todos,
-                      controller: controller,
-                      historyMode: true,
-                      emptyLabel: normalizedQuery.isEmpty ? '还没有历史' : '没有匹配的历史',
-                    ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  bool _matchesFilter(TodoItem todo) {
-    return switch (filter) {
-      _HistoryFilter.all => true,
-      _HistoryFilter.active => !todo.deleted && !todo.completed,
-      _HistoryFilter.completed => !todo.deleted && todo.completed,
-      _HistoryFilter.deleted => todo.deleted,
-    };
-  }
-}
-
-class _HistoryFilterBar extends StatelessWidget {
-  const _HistoryFilterBar({
-    required this.filter,
-    required this.onFilterChanged,
-  });
-
-  final _HistoryFilter filter;
-  final ValueChanged<_HistoryFilter> onFilterChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          _FilterChipButton(
-            label: '全部',
-            value: _HistoryFilter.all,
-            groupValue: filter,
-            onChanged: onFilterChanged,
-          ),
-          const SizedBox(width: 8),
-          _FilterChipButton(
-            label: '当前',
-            value: _HistoryFilter.active,
-            groupValue: filter,
-            onChanged: onFilterChanged,
-          ),
-          const SizedBox(width: 8),
-          _FilterChipButton(
-            label: '已完成',
-            value: _HistoryFilter.completed,
-            groupValue: filter,
-            onChanged: onFilterChanged,
-          ),
-          const SizedBox(width: 8),
-          _FilterChipButton(
-            label: '已删除',
-            value: _HistoryFilter.deleted,
-            groupValue: filter,
-            onChanged: onFilterChanged,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FilterChipButton extends StatelessWidget {
-  const _FilterChipButton({
-    required this.label,
-    required this.value,
-    required this.groupValue,
-    required this.onChanged,
-  });
-
-  final String label;
-  final _HistoryFilter value;
-  final _HistoryFilter groupValue;
-  final ValueChanged<_HistoryFilter> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: value == groupValue,
-      onSelected: (_) => onChanged(value),
-    );
-  }
-}
-
 class SyncDevicesPage extends StatefulWidget {
   const SyncDevicesPage({super.key, required this.controller});
 
@@ -1167,12 +995,19 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   _SyncActionGrid(
-                    onSync: widget.controller.sync.syncAllTrustedDevices,
+                    onSync: _syncAll,
                     onShowPairingCode: _showPairingCode,
                     onPair: _openScannerOrManualPair,
                     onExport: _exportBackup,
                   ),
                   const SizedBox(height: 20),
+                  _SupabaseSyncSection(
+                    controller: widget.controller,
+                    onSync: _syncSupabase,
+                    onSettings: _showSupabaseSettings,
+                    onTest: _testSupabase,
+                  ),
+                  const SizedBox(height: 16),
                   _SyncPanel(
                     controller: widget.controller,
                     shrinkWrap: true,
@@ -1229,6 +1064,162 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
         );
       },
     );
+  }
+
+  Future<void> _syncAll() async {
+    await widget.controller.sync.syncAllTrustedDevices();
+    if (widget.controller.supabaseSync.config.canSync) {
+      await _syncSupabase();
+    }
+  }
+
+  Future<void> _syncSupabase() async {
+    try {
+      await widget.controller.supabaseSync.syncNow();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Supabase 同步完成')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Supabase 同步失败: $error')));
+    }
+  }
+
+  Future<void> _testSupabase() async {
+    try {
+      await widget.controller.supabaseSync.testConnection();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Supabase 连接正常')));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Supabase 连接失败: $error')));
+    }
+  }
+
+  Future<void> _showSupabaseSettings() async {
+    final config = widget.controller.supabaseSync.config;
+    final restUrlController = TextEditingController(text: config.restUrl);
+    final keyController = TextEditingController(text: config.publishableKey);
+    final tableController = TextEditingController(text: config.tableName);
+    final spaceController = TextEditingController(text: config.syncSpace);
+    var enabled = config.enabled;
+    try {
+      final result = await showDialog<SupabaseSyncConfig>(
+        context: context,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Supabase 远程同步'),
+                scrollable: true,
+                content: SizedBox(
+                  width: 460,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('启用远程同步'),
+                        value: enabled,
+                        onChanged: (value) {
+                          setDialogState(() => enabled = value);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: restUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'REST API URL',
+                          hintText: 'https://xxxx.supabase.co/rest/v1',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: keyController,
+                        decoration: const InputDecoration(
+                          labelText: 'Publishable key',
+                          hintText: 'sb_publishable_...',
+                        ),
+                        obscureText: true,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: tableController,
+                        decoration: const InputDecoration(
+                          labelText: '事件表名',
+                          hintText: 'mytodo_events',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: spaceController,
+                        decoration: const InputDecoration(
+                          labelText: '同步空间',
+                          hintText: 'family 或个人空间名',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const _WarningText(
+                        '客户端只允许填写 publishable key。不要填写 secret key；secret key 一旦进入 APK/EXE 就会泄露。',
+                      ),
+                      const SizedBox(height: 8),
+                      const SelectableText(
+                        '表结构需包含 sync_space、event_id、device_id、seq、timestamp、type、todo_id、payload_json 字段。',
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('取消'),
+                  ),
+                  FilledButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(
+                        SupabaseSyncConfig(
+                          enabled: enabled,
+                          restUrl: restUrlController.text,
+                          publishableKey: keyController.text,
+                          tableName: tableController.text,
+                          syncSpace: spaceController.text,
+                        ),
+                      );
+                    },
+                    child: const Text('保存'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      if (result == null) {
+        return;
+      }
+      await widget.controller.supabaseSync.saveConfig(result);
+    } finally {
+      restUrlController.dispose();
+      keyController.dispose();
+      tableController.dispose();
+      spaceController.dispose();
+    }
   }
 
   Future<void> _openScannerOrManualPair() async {
@@ -1415,6 +1406,103 @@ class _SyncActionButton extends StatelessWidget {
       return FilledButton(onPressed: onPressed, style: style, child: child);
     }
     return OutlinedButton(onPressed: onPressed, style: style, child: child);
+  }
+}
+
+class _SupabaseSyncSection extends StatelessWidget {
+  const _SupabaseSyncSection({
+    required this.controller,
+    required this.onSync,
+    required this.onSettings,
+    required this.onTest,
+  });
+
+  final AppController controller;
+  final VoidCallback onSync;
+  final VoidCallback onSettings;
+  final VoidCallback onTest;
+
+  @override
+  Widget build(BuildContext context) {
+    final config = controller.supabaseSync.config;
+    final scheme = Theme.of(context).colorScheme;
+    final enabledColor = config.enabled
+        ? const Color(0xFF2E7D32)
+        : scheme.onSurfaceVariant;
+    return _SyncSection(
+      title: 'Supabase 远程同步',
+      icon: Icons.cloud_sync_outlined,
+      children: [
+        Row(
+          children: [
+            Icon(
+              config.enabled ? Icons.cloud_done : Icons.cloud_off,
+              color: enabledColor,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                config.enabled ? '已启用' : '未启用',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(color: enabledColor),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _InfoRow(label: '地址', value: config.restUrl),
+        _InfoRow(label: '表', value: config.tableName),
+        _InfoRow(label: '空间', value: config.syncSpace),
+        const SizedBox(height: 8),
+        _StatusPill(text: controller.supabaseSync.status),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: config.canSync && !controller.supabaseSync.busy
+                  ? onSync
+                  : null,
+              icon: const Icon(Icons.cloud_sync),
+              label: const Text('立即远程同步'),
+            ),
+            OutlinedButton.icon(
+              onPressed: controller.supabaseSync.busy ? null : onTest,
+              icon: const Icon(Icons.network_check),
+              label: const Text('测试连接'),
+            ),
+            OutlinedButton.icon(
+              onPressed: controller.supabaseSync.busy ? null : onSettings,
+              icon: const Icon(Icons.settings),
+              label: const Text('配置'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _WarningText extends StatelessWidget {
+  const _WarningText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.warning_amber, color: scheme.error, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(text, style: TextStyle(color: scheme.error)),
+        ),
+      ],
+    );
   }
 }
 

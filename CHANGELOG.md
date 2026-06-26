@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 - 2026-06-27
+
+- Added configurable Supabase remote sync using the REST API and publishable keys.
+- Added a Supabase remote sync panel under sync/devices with connection testing and manual sync.
+- Reworked history search filtering into a testable component so filter chips update immediately.
+
 ## 1.2.0 - 2026-06-27
 
 - Added an in-app update checker for Android and Windows.

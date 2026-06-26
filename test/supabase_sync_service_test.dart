@@ -1,0 +1,135 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mytodo/src/data/todo_models.dart';
+import 'package:mytodo/src/data/todo_store.dart';
+import 'package:mytodo/src/sync/supabase_sync_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  test(
+    'syncs local and remote event logs through Supabase REST shape',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = await TodoStore.openInMemoryForTesting(
+        device: const LocalDevice(
+          deviceId: 'device-a',
+          name: 'Device A',
+          token: 'token-a',
+        ),
+      );
+      await store.createTodo('Local task');
+
+      const remoteEvent = TodoEvent(
+        eventId: 'remote-event-1',
+        deviceId: 'device-b',
+        seq: 1,
+        timestamp: 2000,
+        type: 'todo.upsert',
+        todoId: 'remote-todo-1',
+        payload: {
+          'id': 'remote-todo-1',
+          'title': 'Remote task',
+          'completed': false,
+          'deleted': false,
+          'createdAt': 2000,
+          'updatedAt': 2000,
+        },
+      );
+      final pushedRows = <Map<String, Object?>>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      late final StreamSubscription<HttpRequest> subscription;
+      addTearDown(() async {
+        await subscription.cancel();
+        await server.close(force: true);
+      });
+
+      subscription = server.listen((request) async {
+        expect(request.headers.value('apikey'), 'publishable');
+        expect(request.uri.path, '/rest/v1/mytodo_events');
+        request.response.headers.contentType = ContentType.json;
+
+        if (request.method == 'GET') {
+          request.response.write(
+            jsonEncode([
+              {
+                'event_id': remoteEvent.eventId,
+                'device_id': remoteEvent.deviceId,
+                'seq': remoteEvent.seq,
+                'timestamp': remoteEvent.timestamp,
+                'type': remoteEvent.type,
+                'todo_id': remoteEvent.todoId,
+                'payload_json': remoteEvent.payload,
+              },
+            ]),
+          );
+          await request.response.close();
+          return;
+        }
+
+        if (request.method == 'POST') {
+          final text = await utf8.decoder.bind(request).join();
+          pushedRows.addAll(
+            (jsonDecode(text) as List).map(
+              (row) => Map<String, Object?>.from(row as Map),
+            ),
+          );
+          request.response.statusCode = HttpStatus.created;
+          request.response.write('[]');
+          await request.response.close();
+          return;
+        }
+
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      });
+
+      final service = SupabaseSyncService(store);
+      addTearDown(service.close);
+      await service.saveConfig(
+        SupabaseSyncConfig(
+          enabled: true,
+          restUrl: 'http://127.0.0.1:${server.port}/rest/v1',
+          publishableKey: 'publishable',
+          tableName: 'mytodo_events',
+          syncSpace: 'test-space',
+        ),
+      );
+
+      final result = await service.syncNow();
+
+      expect(result.pulled, 1);
+      expect(result.pushed, greaterThanOrEqualTo(1));
+      expect(store.todos.map((todo) => todo.title), contains('Remote task'));
+      expect(pushedRows, isNotEmpty);
+      expect(pushedRows.first['sync_space'], 'test-space');
+      expect(pushedRows.first, containsPair('event_id', isNotEmpty));
+    },
+  );
+
+  test('rejects secret keys in client configuration', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await TodoStore.openInMemoryForTesting(
+      device: const LocalDevice(
+        deviceId: 'device-a',
+        name: 'Device A',
+        token: 'token-a',
+      ),
+    );
+    final service = SupabaseSyncService(store);
+    addTearDown(service.close);
+    await service.saveConfig(
+      const SupabaseSyncConfig(
+        enabled: true,
+        restUrl: SupabaseSyncConfig.defaultRestUrl,
+        publishableKey: 'sb_secret_do_not_use',
+        tableName: 'mytodo_events',
+        syncSpace: 'test-space',
+      ),
+    );
+
+    expect(service.syncNow(), throwsA(isA<FormatException>()));
+  });
+}
