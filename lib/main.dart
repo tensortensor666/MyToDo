@@ -11,6 +11,7 @@ import 'src/data/todo_models.dart';
 import 'src/desktop/windows_tray.dart';
 import 'src/search/history_search.dart';
 import 'src/sync/supabase_sync_service.dart';
+import 'src/ui/todo_view_filter.dart';
 import 'src/update/update_page.dart';
 
 Future<void> main() async {
@@ -101,6 +102,7 @@ class TodoHome extends StatefulWidget {
 
 class _TodoHomeState extends State<TodoHome> {
   WindowsTrayController? _windowsTrayController;
+  bool _syncingFromHome = false;
 
   @override
   void initState() {
@@ -168,6 +170,18 @@ class _TodoHomeState extends State<TodoHome> {
                       tooltip: '检查更新',
                       onPressed: _openUpdatePage,
                       icon: const Icon(Icons.system_update),
+                    ),
+                    IconButton(
+                      tooltip: '立即同步',
+                      onPressed: _syncingFromHome
+                          ? null
+                          : () => unawaited(_syncFromHome(showResult: true)),
+                      icon: _syncingFromHome
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync),
                     ),
                     IconButton(
                       tooltip: '同步和设备',
@@ -246,6 +260,12 @@ class _TodoHomeState extends State<TodoHome> {
   }
 
   Future<void> _syncFromHome({bool showResult = false}) async {
+    if (_syncingFromHome) {
+      return;
+    }
+    if (mounted) {
+      setState(() => _syncingFromHome = true);
+    }
     try {
       await widget.controller.sync.syncAllTrustedDevices();
       if (widget.controller.supabaseSync.config.canSync) {
@@ -261,6 +281,10 @@ class _TodoHomeState extends State<TodoHome> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('同步失败: $error')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _syncingFromHome = false);
       }
     }
   }
@@ -278,7 +302,7 @@ class _SyncTodosIntent extends Intent {
   const _SyncTodosIntent();
 }
 
-class _TodoPanel extends StatelessWidget {
+class _TodoPanel extends StatefulWidget {
   const _TodoPanel({
     required this.controller,
     required this.scrollTodos,
@@ -292,70 +316,102 @@ class _TodoPanel extends StatelessWidget {
   final Future<void> Function()? onRefresh;
 
   @override
+  State<_TodoPanel> createState() => _TodoPanelState();
+}
+
+class _TodoPanelState extends State<_TodoPanel> {
+  TodoViewFilter _filter = TodoViewFilter.active;
+
+  @override
   Widget build(BuildContext context) {
-    final todos = controller.store.todos;
+    final todos = widget.controller.store.todos;
+    final filteredTodos = filterTodosByView(
+      todos,
+      _filter,
+      DateTime.now().millisecondsSinceEpoch,
+    );
     final list = _TodoList(
-      todos: todos,
-      controller: controller,
-      shrinkWrap: !scrollTodos,
+      todos: filteredTodos,
+      controller: widget.controller,
+      shrinkWrap: !widget.scrollTodos,
       historyMode: false,
-      emptyLabel: '暂无任务',
-      onAddTodo: onAddTodo,
+      emptyLabel: _emptyLabel,
+      onAddTodo: widget.onAddTodo,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _TodoOverview(todos: todos),
+        _TodoOverview(
+          todos: todos,
+          selectedFilter: _filter,
+          onFilterChanged: (filter) {
+            setState(() => _filter = filter);
+          },
+        ),
         const SizedBox(height: 16),
-        if (scrollTodos)
+        if (widget.scrollTodos)
           Expanded(
-            child: onRefresh == null
+            child: widget.onRefresh == null
                 ? list
-                : RefreshIndicator(onRefresh: onRefresh!, child: list),
+                : RefreshIndicator(onRefresh: widget.onRefresh!, child: list),
           )
         else
           list,
       ],
     );
   }
+
+  String get _emptyLabel {
+    return switch (_filter) {
+      TodoViewFilter.active => '暂无当前任务',
+      TodoViewFilter.overdue => '没有逾期任务',
+      TodoViewFilter.completed => '还没有已完成任务',
+    };
+  }
 }
 
 class _TodoOverview extends StatelessWidget {
-  const _TodoOverview({required this.todos});
+  const _TodoOverview({
+    required this.todos,
+    required this.selectedFilter,
+    required this.onFilterChanged,
+  });
 
   final List<TodoItem> todos;
+  final TodoViewFilter selectedFilter;
+  final ValueChanged<TodoViewFilter> onFilterChanged;
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final active = todos.where((todo) => !todo.completed).length;
-    final overdue = todos
-        .where(
-          (todo) => !todo.completed && todo.dueAt != null && todo.dueAt! < now,
-        )
-        .length;
-    final completed = todos.where((todo) => todo.completed).length;
+    final counts = countTodosByView(todos, now);
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         _OverviewTile(
           label: '当前',
-          value: active,
+          value: counts.active,
           icon: Icons.radio_button_unchecked,
+          selected: selectedFilter == TodoViewFilter.active,
           color: Theme.of(context).colorScheme.primary,
+          onTap: () => onFilterChanged(TodoViewFilter.active),
         ),
         _OverviewTile(
           label: '逾期',
-          value: overdue,
+          value: counts.overdue,
           icon: Icons.priority_high,
+          selected: selectedFilter == TodoViewFilter.overdue,
           color: Theme.of(context).colorScheme.error,
+          onTap: () => onFilterChanged(TodoViewFilter.overdue),
         ),
         _OverviewTile(
           label: '完成',
-          value: completed,
+          value: counts.completed,
           icon: Icons.check_circle_outline,
+          selected: selectedFilter == TodoViewFilter.completed,
           color: const Color(0xFF2E7D32),
+          onTap: () => onFilterChanged(TodoViewFilter.completed),
         ),
       ],
     );
@@ -368,44 +424,63 @@ class _OverviewTile extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.color,
+    required this.selected,
+    required this.onTap,
   });
 
   final String label;
   final int value;
   final IconData icon;
   final Color color;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 112,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.52),
-        border: Border.all(color: scheme.outlineVariant),
+    final background = selected
+        ? color.withValues(alpha: 0.14)
+        : scheme.surfaceContainerHighest.withValues(alpha: 0.52);
+    final borderColor = selected ? color : scheme.outlineVariant;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 112,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: background,
+            border: Border.all(color: borderColor, width: selected ? 1.4 : 1),
+            borderRadius: BorderRadius.circular(8),
           ),
-          Text(
-            value.toString(),
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: selected ? color : null,
+                    fontWeight: selected ? FontWeight.w700 : null,
+                  ),
+                ),
+              ),
+              Text(
+                value.toString(),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -452,9 +527,7 @@ class _TodoList extends StatelessWidget {
       }
       return _TodoEmptyState(label: emptyLabel, onAddTodo: onAddTodo);
     }
-    final children = historyMode
-        ? _buildHistoryChildren(context)
-        : _buildGroupedChildren(context);
+    final children = _buildListChildren(context);
     return ListView(
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap
@@ -465,7 +538,7 @@ class _TodoList extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildHistoryChildren(BuildContext context) {
+  List<Widget> _buildListChildren(BuildContext context) {
     return [
       for (final todo in todos)
         Padding(
@@ -476,42 +549,6 @@ class _TodoList extends StatelessWidget {
             historyMode: historyMode,
           ),
         ),
-    ];
-  }
-
-  List<Widget> _buildGroupedChildren(BuildContext context) {
-    final active = todos
-        .where((todo) => !todo.completed)
-        .toList(growable: false);
-    final completed = todos
-        .where((todo) => todo.completed)
-        .toList(growable: false);
-    return [
-      if (active.isNotEmpty) ...[
-        _SectionHeader(label: '进行中', count: active.length),
-        for (final todo in active)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _TodoTile(
-              todo: todo,
-              controller: controller,
-              historyMode: historyMode,
-            ),
-          ),
-      ],
-      if (completed.isNotEmpty) ...[
-        const SizedBox(height: 8),
-        _SectionHeader(label: '已完成', count: completed.length),
-        for (final todo in completed)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _TodoTile(
-              todo: todo,
-              controller: controller,
-              historyMode: historyMode,
-            ),
-          ),
-      ],
     ];
   }
 }
@@ -544,37 +581,6 @@ class _TodoEmptyState extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.label, required this.count});
-
-  final String label;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            count.toString(),
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -671,7 +677,7 @@ Color _todoBorderColor(BuildContext context, TodoItem todo) {
   if (todo.deleted) {
     return scheme.error.withValues(alpha: 0.32);
   }
-  if (!todo.completed && todo.dueAt != null && todo.dueAt! < now) {
+  if (!todo.completed && isTodoOverdue(todo, now)) {
     return scheme.error.withValues(alpha: 0.5);
   }
   if (todo.completed) {
@@ -696,7 +702,8 @@ class _TodoMetadata extends StatelessWidget {
       ),
     ];
     if (todo.dueAt != null) {
-      final overdue = !todo.completed && !todo.deleted && todo.dueAt! < now;
+      final overdue =
+          !todo.completed && !todo.deleted && isTodoOverdue(todo, now);
       chips.add(
         _MetaChip(
           icon: overdue ? Icons.priority_high : Icons.event,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.4 - 2026-06-27
+
+- Added clickable current, overdue, and completed filters on the main task view.
+- Reduced main-screen clutter by hiding overdue and completed tasks unless their filter is selected.
+- Added a desktop-friendly immediate sync button in the top app bar with an in-progress state.
+
 ## 1.3.3 - 2026-06-27
 
 - Added pull-to-refresh sync on the main task list.
