@@ -430,6 +430,28 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
             title: const Text('添加清单'),
             onTap: onAddList,
           ),
+          fluent.PaneItemSeparator(),
+          fluent.PaneItemAction(
+            icon: const Icon(Icons.search),
+            title: const Text('搜索'),
+            onTap: onSearch,
+          ),
+          fluent.PaneItemAction(
+            icon: const Icon(Icons.system_update),
+            title: const Text('检查更新'),
+            onTap: onUpdate,
+          ),
+          fluent.PaneItemAction(
+            icon: syncing
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync),
+            title: Text(syncing ? '同步中' : '立即同步'),
+            enabled: onSync != null,
+            onTap: onSync ?? () {},
+          ),
           fluent.PaneItemAction(
             icon: const Icon(Icons.devices),
             title: const Text('同步和设备'),
@@ -502,7 +524,11 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
             onSelected: onSelected,
             onAddTodo: onAddTodo,
             onAddList: onAddList,
+            onSearch: onSearch,
+            onUpdate: onUpdate,
+            onSync: onSync,
             onSyncPage: onSyncPage,
+            syncing: syncing,
           ),
         ),
       ),
@@ -535,7 +561,11 @@ class _CompactNavigationDrawer extends StatelessWidget {
     required this.onSelected,
     required this.onAddTodo,
     required this.onAddList,
+    required this.onSearch,
+    required this.onUpdate,
+    required this.onSync,
     required this.onSyncPage,
+    required this.syncing,
   });
 
   final List<TodoNavEntry> entries;
@@ -544,7 +574,11 @@ class _CompactNavigationDrawer extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final VoidCallback onAddTodo;
   final VoidCallback onAddList;
+  final VoidCallback onSearch;
+  final VoidCallback onUpdate;
+  final VoidCallback? onSync;
   final VoidCallback onSyncPage;
+  final bool syncing;
 
   @override
   Widget build(BuildContext context) {
@@ -595,6 +629,38 @@ class _CompactNavigationDrawer extends StatelessWidget {
           onTap: () {
             Navigator.of(context).pop();
             onAddList();
+          },
+        ),
+        const Divider(height: 1),
+        _DrawerActionTile(
+          icon: Icons.search,
+          label: '搜索',
+          onTap: () {
+            Navigator.of(context).pop();
+            onSearch();
+          },
+        ),
+        _DrawerActionTile(
+          icon: Icons.system_update,
+          label: '检查更新',
+          onTap: () {
+            Navigator.of(context).pop();
+            onUpdate();
+          },
+        ),
+        _DrawerActionTile(
+          icon: Icons.sync,
+          label: syncing ? '同步中' : '立即同步',
+          enabled: onSync != null,
+          trailing: syncing
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : null,
+          onTap: () {
+            Navigator.of(context).pop();
+            onSync?.call();
           },
         ),
         _DrawerActionTile(
@@ -655,15 +721,20 @@ class _DrawerActionTile extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.enabled = true,
+    this.trailing,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool enabled;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      enabled: enabled,
       leading: Icon(icon, color: const Color(0xFF0E4D49)),
       title: Text(
         label,
@@ -672,7 +743,8 @@ class _DrawerActionTile extends StatelessWidget {
           fontWeight: FontWeight.w600,
         ),
       ),
-      onTap: onTap,
+      trailing: trailing,
+      onTap: enabled ? onTap : null,
     );
   }
 }
@@ -735,15 +807,8 @@ class _FluentMainContent extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _TopCommandBar(
-          syncing: syncing,
-          onSearch: onSearch,
-          onUpdate: onUpdate,
-          onSync: onSync,
-          onSyncPage: onSyncPage,
-          compact: compact,
-          onOpenNavigation: onOpenNavigation,
-        ),
+        if (onOpenNavigation != null)
+          _MobileNavigationBar(onOpenNavigation: onOpenNavigation!),
         Expanded(
           child: _TodoContentPage(
             entry: entry,
@@ -758,60 +823,28 @@ class _FluentMainContent extends StatelessWidget {
   }
 }
 
-class _TopCommandBar extends StatelessWidget {
-  const _TopCommandBar({
-    required this.syncing,
-    required this.onSearch,
-    required this.onUpdate,
-    required this.onSync,
-    required this.onSyncPage,
-    this.compact = false,
-    this.onOpenNavigation,
-  });
+class _MobileNavigationBar extends StatelessWidget {
+  const _MobileNavigationBar({required this.onOpenNavigation});
 
-  final bool syncing;
-  final VoidCallback onSearch;
-  final VoidCallback onUpdate;
-  final VoidCallback? onSync;
-  final VoidCallback onSyncPage;
-  final bool compact;
-  final VoidCallback? onOpenNavigation;
+  final VoidCallback onOpenNavigation;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: compact ? 56 : 64,
-      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 20),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE1E9E7))),
       ),
       child: Row(
         children: [
-          if (onOpenNavigation != null)
-            _TopIconButton(
-              tooltip: '打开侧边栏',
-              icon: Icons.menu,
-              onTap: onOpenNavigation,
-            ),
+          _TopIconButton(
+            tooltip: '打开侧边栏',
+            icon: Icons.menu,
+            onTap: onOpenNavigation,
+          ),
           const Spacer(),
-          _TopIconButton(tooltip: '搜索历史', icon: Icons.search, onTap: onSearch),
-          _TopIconButton(
-            tooltip: '检查更新',
-            icon: Icons.system_update,
-            onTap: onUpdate,
-          ),
-          _TopIconButton(
-            tooltip: '立即同步',
-            icon: Icons.sync,
-            busy: syncing,
-            onTap: onSync,
-          ),
-          _TopIconButton(
-            tooltip: '同步和设备',
-            icon: Icons.devices,
-            onTap: onSyncPage,
-          ),
         ],
       ),
     );
@@ -823,13 +856,11 @@ class _TopIconButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onTap,
-    this.busy = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback? onTap;
-  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -837,12 +868,7 @@ class _TopIconButton extends StatelessWidget {
       message: tooltip,
       child: IconButton(
         onPressed: onTap,
-        icon: busy
-            ? const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(icon, size: 20),
+        icon: Icon(icon, size: 20),
         color: const Color(0xFF0E4D49),
       ),
     );
