@@ -154,6 +154,35 @@ void main() {
     expect(results.single.deleted, isTrue);
   });
 
+  test('todos can be manually reordered and synced', () async {
+    final first = await _freshStore('device-a');
+    final second = await _freshStore('device-b');
+
+    await first.createTodo('Alpha');
+    await first.createTodo('Bravo');
+    await first.createTodo('Charlie');
+
+    expect(
+      first.visibleTodosForList(TodoList.inboxId).map((todo) => todo.title),
+      ['Alpha', 'Bravo', 'Charlie'],
+    );
+
+    await first.reorderTodos([first.todos[2], first.todos[0], first.todos[1]]);
+
+    expect(
+      first.visibleTodosForList(TodoList.inboxId).map((todo) => todo.title),
+      ['Charlie', 'Alpha', 'Bravo'],
+    );
+
+    final events = await first.eventsAfterClock(await second.eventClock());
+    await second.applyRemoteEvents(events);
+
+    expect(
+      second.visibleTodosForList(TodoList.inboxId).map((todo) => todo.title),
+      ['Charlie', 'Alpha', 'Bravo'],
+    );
+  });
+
   test('todo can store due date and reminder time', () async {
     final store = await TodoStore.openInMemoryForTesting(
       device: const LocalDevice(

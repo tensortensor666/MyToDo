@@ -14,6 +14,7 @@ import 'src/search/history_search.dart';
 import 'src/sync/supabase_sync_service.dart';
 import 'src/ui/theme/app_theme.dart';
 import 'src/ui/nav_views.dart';
+import 'src/ui/reorder_items.dart';
 import 'src/ui/todo_view_filter.dart';
 import 'src/update/update_page.dart';
 
@@ -911,6 +912,7 @@ class _TodoContentPageState extends State<_TodoContentPage> {
       historyMode: false,
       emptyLabel: _emptyLabel,
       onAddTodo: widget.onAddTodo,
+      onReorder: widget.controller.store.reorderTodos,
     );
     return Center(
       child: ConstrainedBox(
@@ -1199,6 +1201,7 @@ class _TodoList extends StatelessWidget {
     required this.emptyLabel,
     this.shrinkWrap = false,
     this.onAddTodo,
+    this.onReorder,
   });
 
   final List<TodoItem> todos;
@@ -1207,6 +1210,7 @@ class _TodoList extends StatelessWidget {
   final String emptyLabel;
   final bool shrinkWrap;
   final VoidCallback? onAddTodo;
+  final Future<void> Function(List<TodoItem> orderedTodos)? onReorder;
 
   @override
   Widget build(BuildContext context) {
@@ -1233,6 +1237,16 @@ class _TodoList extends StatelessWidget {
       return _TodoEmptyState(label: emptyLabel, onAddTodo: onAddTodo);
     }
     final children = _buildListChildren(context);
+    if (!historyMode && !shrinkWrap && onReorder != null) {
+      return ReorderableListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 96),
+        onReorderItem: (oldIndex, newIndex) {
+          unawaited(onReorder!(reorderItems(todos, oldIndex, newIndex)));
+        },
+        children: children,
+      );
+    }
     return ListView(
       shrinkWrap: shrinkWrap,
       physics: shrinkWrap
@@ -1247,6 +1261,7 @@ class _TodoList extends StatelessWidget {
     return [
       for (final todo in todos)
         Padding(
+          key: ValueKey(todo.id),
           padding: const EdgeInsets.only(bottom: 8),
           child: _TodoTile(
             todo: todo,

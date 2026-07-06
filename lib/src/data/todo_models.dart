@@ -210,6 +210,7 @@ class TodoItem {
     required this.deleted,
     required this.createdAt,
     required this.updatedAt,
+    int? sortOrder,
     this.listId = TodoList.inboxId,
     this.templateId,
     this.taskDate,
@@ -217,7 +218,7 @@ class TodoItem {
     this.dueAt,
     this.reminderAt,
     this.important = false,
-  });
+  }) : sortOrder = sortOrder ?? createdAt;
 
   final String id;
   final String title;
@@ -225,6 +226,7 @@ class TodoItem {
   final bool deleted;
   final int createdAt;
   final int updatedAt;
+  final int sortOrder;
   final String listId;
   final String? templateId;
   final String? taskDate;
@@ -238,6 +240,7 @@ class TodoItem {
     bool? completed,
     bool? deleted,
     int? updatedAt,
+    int? sortOrder,
     String? listId,
     Object? templateId = _notSet,
     Object? taskDate = _notSet,
@@ -253,11 +256,14 @@ class TodoItem {
       deleted: deleted ?? this.deleted,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      sortOrder: sortOrder ?? this.sortOrder,
       listId: listId ?? this.listId,
       templateId: identical(templateId, _notSet)
           ? this.templateId
           : templateId as String?,
-      taskDate: identical(taskDate, _notSet) ? this.taskDate : taskDate as String?,
+      taskDate: identical(taskDate, _notSet)
+          ? this.taskDate
+          : taskDate as String?,
       sourceType: sourceType ?? this.sourceType,
       dueAt: identical(dueAt, _notSet) ? this.dueAt : dueAt as int?,
       reminderAt: identical(reminderAt, _notSet)
@@ -275,6 +281,7 @@ class TodoItem {
       'deleted': deleted,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'sortOrder': sortOrder,
       'listId': listId,
       'templateId': templateId,
       'taskDate': taskDate,
@@ -293,6 +300,7 @@ class TodoItem {
       deleted: json['deleted'] as bool? ?? false,
       createdAt: json['createdAt'] as int,
       updatedAt: json['updatedAt'] as int,
+      sortOrder: json['sortOrder'] as int? ?? json['createdAt'] as int,
       listId: json['listId'] as String? ?? TodoList.inboxId,
       templateId: json['templateId'] as String?,
       taskDate: json['taskDate'] as String?,
@@ -311,6 +319,7 @@ class TodoItem {
       'deleted': deleted ? 1 : 0,
       'created_at': createdAt,
       'updated_at': updatedAt,
+      'sort_order': sortOrder,
       'list_id': listId,
       'template_id': templateId,
       'task_date': taskDate,
@@ -329,6 +338,7 @@ class TodoItem {
       deleted: (row['deleted'] as int) == 1,
       createdAt: row['created_at'] as int,
       updatedAt: row['updated_at'] as int,
+      sortOrder: row['sort_order'] as int? ?? row['created_at'] as int,
       listId: row['list_id'] as String? ?? TodoList.inboxId,
       templateId: row['template_id'] as String?,
       taskDate: row['task_date'] as String?,

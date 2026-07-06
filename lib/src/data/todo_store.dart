@@ -143,7 +143,8 @@ CREATE TABLE IF NOT EXISTS todos (
   task_date TEXT,
   source_type TEXT NOT NULL DEFAULT '${TodoSource.manual}',
   due_at INTEGER,
-  reminder_at INTEGER
+  reminder_at INTEGER,
+  sort_order INTEGER NOT NULL DEFAULT 0
 )
 ''');
     await _ensureTodoColumns(db);
@@ -197,6 +198,9 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       'CREATE INDEX IF NOT EXISTS todos_list_updated_idx ON todos(list_id, completed, due_at, updated_at)',
     );
     await db.execute(
+      'CREATE INDEX IF NOT EXISTS todos_list_sort_idx ON todos(list_id, completed, sort_order, created_at)',
+    );
+    await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS todos_template_date_idx ON todos(template_id, task_date) WHERE template_id IS NOT NULL',
     );
     await db.execute(
@@ -234,6 +238,12 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         'ALTER TABLE todos ADD COLUMN important INTEGER NOT NULL DEFAULT 0',
       );
     }
+    if (!columns.contains('sort_order')) {
+      await db.execute(
+        'ALTER TABLE todos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
+      );
+      await db.execute('UPDATE todos SET sort_order = created_at');
+    }
   }
 
   static Future<void> _ensureListColumns(DatabaseExecutor db) async {
@@ -248,10 +258,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     String tableName,
   ) async {
     final rows = await db.rawQuery('PRAGMA table_info($tableName)');
-    return rows
-        .map((row) => row['name'])
-        .whereType<String>()
-        .toSet();
+    return rows.map((row) => row['name']).whereType<String>().toSet();
   }
 
   static Future<void> _seedSystemLists(DatabaseExecutor db) async {
@@ -305,13 +312,12 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     final historyRows = await _db.query(
       'todos',
       orderBy:
-          'deleted ASC, completed ASC, task_date DESC, due_at IS NULL ASC, due_at ASC, updated_at DESC',
+          'deleted ASC, completed ASC, sort_order ASC, created_at ASC, updated_at DESC',
     );
     final rows = await _db.query(
       'todos',
       where: 'deleted = 0',
-      orderBy:
-          'completed ASC, task_date DESC, due_at IS NULL ASC, due_at ASC, updated_at DESC',
+      orderBy: 'completed ASC, sort_order ASC, created_at ASC, updated_at DESC',
     );
     final trustedRows = await _db.query(
       'trusted_devices',
@@ -413,10 +419,12 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     await _writeLocalEntityEvent(
       'list.upsert',
       list.id,
-      list.copyWith(
-        name: trimmed,
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
-      ).toJson(),
+      list
+          .copyWith(
+            name: trimmed,
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          )
+          .toJson(),
     );
   }
 
@@ -522,6 +530,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
           templateId: template.id,
           taskDate: today,
           sourceType: TodoSource.recurring,
+          sortOrder: await _nextTodoSortOrder(txn, template.listId),
         );
         await txn.insert('todos', todo.toDb());
         inserted = true;
@@ -544,6 +553,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       return;
     }
     final now = DateTime.now().millisecondsSinceEpoch;
+    final sortOrder = await _nextTodoSortOrder(_db, listId);
     final todo = TodoItem(
       id: _uuid.v4(),
       title: trimmed,
@@ -555,6 +565,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       dueAt: dueAt,
       reminderAt: reminderAt,
       important: important,
+      sortOrder: sortOrder,
     );
     await _writeLocalTodoEvent('todo.upsert', todo);
   }
@@ -622,10 +633,12 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     await _writeLocalEntityEvent(
       'list.upsert',
       list.id,
-      list.copyWith(
-        color: color,
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
-      ).toJson(),
+      list
+          .copyWith(
+            color: color,
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          )
+          .toJson(),
     );
   }
 
@@ -663,8 +676,40 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     );
   }
 
+  Future<void> reorderTodos(List<TodoItem> orderedTodos) async {
+    if (orderedTodos.length < 2) {
+      return;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final updates = <TodoItem>[];
+    for (var index = 0; index < orderedTodos.length; index++) {
+      final todo = orderedTodos[index];
+      final sortOrder = (index + 1) * 1000;
+      if (todo.sortOrder != sortOrder) {
+        updates.add(
+          todo.copyWith(sortOrder: sortOrder, updatedAt: now + index),
+        );
+      }
+    }
+    if (updates.isEmpty) {
+      return;
+    }
+    await _writeLocalTodoEvents('todo.upsert', updates);
+  }
+
   Future<void> _writeLocalTodoEvent(String type, TodoItem todo) async {
     await _writeLocalEntityEvent(type, todo.id, todo.toJson());
+  }
+
+  Future<void> _writeLocalTodoEvents(String type, List<TodoItem> todos) async {
+    await _writeLocalEntityEvents([
+      for (final todo in todos)
+        _PendingEntityEvent(
+          type: type,
+          entityId: todo.id,
+          payload: todo.toJson(),
+        ),
+    ]);
   }
 
   Future<void> _writeLocalEntityEvent(
@@ -672,21 +717,47 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     String entityId,
     Map<String, Object?> payload,
   ) async {
+    await _writeLocalEntityEvents([
+      _PendingEntityEvent(type: type, entityId: entityId, payload: payload),
+    ]);
+  }
+
+  Future<void> _writeLocalEntityEvents(
+    List<_PendingEntityEvent> pendingEvents,
+  ) async {
+    if (pendingEvents.isEmpty) {
+      return;
+    }
     final seq = await _nextLocalSeq();
-    final event = TodoEvent(
-      eventId: _uuid.v4(),
-      deviceId: device.deviceId,
-      seq: seq,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-      type: type,
-      todoId: entityId,
-      payload: payload,
-    );
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final events = [
+      for (var index = 0; index < pendingEvents.length; index++)
+        TodoEvent(
+          eventId: _uuid.v4(),
+          deviceId: device.deviceId,
+          seq: seq + index,
+          timestamp: timestamp + index,
+          type: pendingEvents[index].type,
+          todoId: pendingEvents[index].entityId,
+          payload: pendingEvents[index].payload,
+        ),
+    ];
     await _db.transaction((txn) async {
-      await txn.insert('events', event.toDb());
-      await _applyEventInTransaction(txn, event);
+      for (final event in events) {
+        await txn.insert('events', event.toDb());
+        await _applyEventInTransaction(txn, event);
+      }
     });
     await reload();
+  }
+
+  Future<int> _nextTodoSortOrder(DatabaseExecutor db, String listId) async {
+    final rows = await db.rawQuery(
+      'SELECT MAX(sort_order) AS max_sort FROM todos WHERE deleted = 0 AND list_id = ?',
+      [listId],
+    );
+    final maxSort = rows.first['max_sort'] as int?;
+    return (maxSort ?? 0) + 1000;
   }
 
   Future<int> _nextLocalSeq() async {
@@ -725,10 +796,9 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     await _db.transaction((txn) async {
       for (final event in events) {
         final exists = Sqflite.firstIntValue(
-          await txn.rawQuery(
-            'SELECT COUNT(*) FROM events WHERE event_id = ?',
-            [event.eventId],
-          ),
+          await txn.rawQuery('SELECT COUNT(*) FROM events WHERE event_id = ?', [
+            event.eventId,
+          ]),
         );
         if (exists != 0) {
           continue;
@@ -842,10 +912,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     );
     await txn.update(
       'recurring_templates',
-      {
-        'list_id': TodoList.inboxId,
-        'updated_at': event.timestamp,
-      },
+      {'list_id': TodoList.inboxId, 'updated_at': event.timestamp},
       where: 'list_id = ?',
       whereArgs: [incoming.id],
     );
@@ -905,7 +972,9 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       'generatedAt': now.toIso8601String(),
       'device': {'deviceId': device.deviceId, 'name': device.name},
       'lists': _lists.map((item) => item.toJson()).toList(),
-      'recurringTemplates': _recurringTemplates.map((item) => item.toJson()).toList(),
+      'recurringTemplates': _recurringTemplates
+          .map((item) => item.toJson())
+          .toList(),
       'todos': _todoHistory.map((todo) => todo.toJson()).toList(),
       'trustedDevices': _trustedDevices.map((item) => item.toDb()).toList(),
       'events': (await allEvents()).map((event) => event.toJson()).toList(),
@@ -943,4 +1012,16 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       999,
     ).millisecondsSinceEpoch;
   }
+}
+
+class _PendingEntityEvent {
+  const _PendingEntityEvent({
+    required this.type,
+    required this.entityId,
+    required this.payload,
+  });
+
+  final String type;
+  final String entityId;
+  final Map<String, Object?> payload;
 }

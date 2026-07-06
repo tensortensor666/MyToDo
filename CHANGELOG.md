@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0 - 2026-07-06
+
+- Added drag-and-drop manual task ordering in the main task list.
+- Persisted task order locally and through sync events so reordered tasks keep the same order across devices.
+- Added migration fallback for existing task data without a stored sort order.
+
 ## 1.3.5 - 2026-07-06
 
 - Restored the accepted two-pane task UI with list navigation for desktop.

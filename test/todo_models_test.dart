@@ -10,6 +10,7 @@ void main() {
       deleted: false,
       createdAt: 1000,
       updatedAt: 2000,
+      sortOrder: 1500,
       listId: TodoList.dailyId,
       templateId: 'template-1',
       taskDate: '2026-06-30',
@@ -20,6 +21,20 @@ void main() {
 
     expect(TodoItem.fromJson(todo.toJson()).toJson(), todo.toJson());
     expect(TodoItem.fromDb(todo.toDb()).toJson(), todo.toJson());
+  });
+
+  test('todo item defaults sort order for old payloads', () {
+    final todo = TodoItem.fromJson(const {
+      'id': 'todo-old',
+      'title': 'Old payload',
+      'completed': false,
+      'deleted': false,
+      'createdAt': 1234,
+      'updatedAt': 2234,
+    });
+
+    expect(todo.sortOrder, 1234);
+    expect(TodoItem.fromDb(todo.toDb()).sortOrder, 1234);
   });
 
   test('todo item preserves important flag and defaults to false', () {
