@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -11,8 +12,14 @@ import 'src/data/todo_models.dart';
 import 'src/desktop/windows_tray.dart';
 import 'src/search/history_search.dart';
 import 'src/sync/supabase_sync_service.dart';
+import 'src/ui/theme/app_theme.dart';
+import 'src/ui/nav_views.dart';
 import 'src/ui/todo_view_filter.dart';
 import 'src/update/update_page.dart';
+
+const Color _appAccent = Color(0xFF0F766E);
+const Color _appBackground = Color(0xFFF5FAF8);
+const Color _sidebarBackground = Color(0xFFEAF3F1);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,9 +37,10 @@ class MyTodoApp extends StatelessWidget {
       title: 'MyTodo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1F7A6D),
+          seedColor: _appAccent,
           brightness: Brightness.light,
         ),
+        fontFamily: 'Microsoft YaHei UI',
         useMaterial3: true,
         visualDensity: VisualDensity.standard,
         appBarTheme: const AppBarTheme(
@@ -44,6 +52,12 @@ class MyTodoApp extends StatelessWidget {
           border: OutlineInputBorder(),
         ),
       ),
+      builder: (context, child) {
+        return fluent.FluentTheme(
+          data: AppTheme.lightTheme(),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const AppBootstrap(),
     );
   }
@@ -103,6 +117,7 @@ class TodoHome extends StatefulWidget {
 class _TodoHomeState extends State<TodoHome> {
   WindowsTrayController? _windowsTrayController;
   bool _syncingFromHome = false;
+  String _selectedListId = TodoList.inboxId;
 
   @override
   void initState() {
@@ -157,55 +172,82 @@ class _TodoHomeState extends State<TodoHome> {
           child: AnimatedBuilder(
             animation: widget.controller,
             builder: (context, _) {
+              final store = widget.controller.store;
+              final entries = buildNavEntries(store);
+              final selectedEntry = _selectedEntry(entries);
               return Scaffold(
-                appBar: AppBar(
-                  title: const Text('MyTodo'),
-                  actions: [
-                    IconButton(
-                      tooltip: '搜索历史',
-                      onPressed: _openHistorySearch,
-                      icon: const Icon(Icons.search),
-                    ),
-                    IconButton(
-                      tooltip: '检查更新',
-                      onPressed: _openUpdatePage,
-                      icon: const Icon(Icons.system_update),
-                    ),
-                    IconButton(
-                      tooltip: '立即同步',
-                      onPressed: _syncingFromHome
-                          ? null
-                          : () => unawaited(_syncFromHome(showResult: true)),
-                      icon: _syncingFromHome
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync),
-                    ),
-                    IconButton(
-                      tooltip: '同步和设备',
-                      onPressed: _openSyncPage,
-                      icon: const Icon(Icons.devices),
-                    ),
-                  ],
-                ),
-                body: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 980),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: _TodoPanel(
-                        controller: widget.controller,
-                        scrollTodos: true,
-                        onAddTodo: _showAddTodoDialog,
-                        onRefresh: _syncFromHome,
-                      ),
-                    ),
+                backgroundColor: _appBackground,
+                body: SafeArea(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 760;
+                      if (compact) {
+                        return _MobileTodoLayout(
+                          entries: entries,
+                          selectedEntry: selectedEntry,
+                          controller: widget.controller,
+                          syncing: _syncingFromHome,
+                          onSelected: (id) {
+                            setState(() => _selectedListId = id);
+                          },
+                          onAddTodo: _showAddTodoDialog,
+                          onSearch: _openHistorySearch,
+                          onUpdate: _openUpdatePage,
+                          onSync: _syncingFromHome
+                              ? null
+                              : () =>
+                                    unawaited(_syncFromHome(showResult: true)),
+                          onSyncPage: _openSyncPage,
+                          onRefresh: _syncFromHome,
+                        );
+                      }
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _TodoSidebar(
+                            entries: entries,
+                            selectedId: selectedEntry.id,
+                            controller: widget.controller,
+                            onSelected: (id) {
+                              setState(() => _selectedListId = id);
+                            },
+                            onAddTodo: _showAddTodoDialog,
+                            onOpenSync: _openSyncPage,
+                          ),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                _TopCommandBar(
+                                  syncing: _syncingFromHome,
+                                  onSearch: _openHistorySearch,
+                                  onUpdate: _openUpdatePage,
+                                  onSync: _syncingFromHome
+                                      ? null
+                                      : () => unawaited(
+                                          _syncFromHome(showResult: true),
+                                        ),
+                                  onSyncPage: _openSyncPage,
+                                ),
+                                Expanded(
+                                  child: _TodoContentPage(
+                                    entry: selectedEntry,
+                                    controller: widget.controller,
+                                    onAddTodo: _showAddTodoDialog,
+                                    onRefresh: _syncFromHome,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 floatingActionButton: FloatingActionButton.extended(
                   onPressed: _showAddTodoDialog,
+                  backgroundColor: _appAccent,
+                  foregroundColor: Colors.white,
                   icon: const Icon(Icons.add),
                   label: const Text('添加任务'),
                 ),
@@ -216,6 +258,30 @@ class _TodoHomeState extends State<TodoHome> {
       ),
     );
   }
+
+  TodoNavEntry _selectedEntry(List<TodoNavEntry> entries) {
+    for (final entry in entries) {
+      if (entry.id == _selectedListId) {
+        return entry;
+      }
+    }
+    _selectedListId = TodoList.inboxId;
+    return entries.firstWhere(
+      (entry) => entry.id == TodoList.inboxId,
+      orElse: () => entries.first,
+    );
+  }
+
+  String _targetListIdForNewTodo() {
+    return switch (_selectedListId) {
+      TodoList.viewMyDayId => TodoList.inboxId,
+      TodoList.viewImportantId => TodoList.inboxId,
+      TodoList.viewPlannedId => TodoList.inboxId,
+      _ => _selectedListId,
+    };
+  }
+
+  bool get _newTodoImportant => _selectedListId == TodoList.viewImportantId;
 
   Future<void> _openHistorySearch() async {
     await showSearch<void>(
@@ -242,6 +308,8 @@ class _TodoHomeState extends State<TodoHome> {
       context,
       controller: widget.controller,
       title: '添加任务',
+      initialListId: _targetListIdForNewTodo(),
+      initialImportant: _newTodoImportant,
     );
   }
 
@@ -290,6 +358,642 @@ class _TodoHomeState extends State<TodoHome> {
   }
 }
 
+class _MobileTodoLayout extends StatelessWidget {
+  const _MobileTodoLayout({
+    required this.entries,
+    required this.selectedEntry,
+    required this.controller,
+    required this.syncing,
+    required this.onSelected,
+    required this.onAddTodo,
+    required this.onSearch,
+    required this.onUpdate,
+    required this.onSync,
+    required this.onSyncPage,
+    required this.onRefresh,
+  });
+
+  final List<TodoNavEntry> entries;
+  final TodoNavEntry selectedEntry;
+  final AppController controller;
+  final bool syncing;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onAddTodo;
+  final VoidCallback onSearch;
+  final VoidCallback onUpdate;
+  final VoidCallback? onSync;
+  final VoidCallback onSyncPage;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _MobileHeader(
+          syncing: syncing,
+          onSearch: onSearch,
+          onUpdate: onUpdate,
+          onSync: onSync,
+          onSyncPage: onSyncPage,
+        ),
+        _MobileNavStrip(
+          entries: entries,
+          selectedId: selectedEntry.id,
+          controller: controller,
+          onSelected: onSelected,
+        ),
+        Expanded(
+          child: _TodoContentPage(
+            entry: selectedEntry,
+            controller: controller,
+            onAddTodo: onAddTodo,
+            onRefresh: onRefresh,
+            compact: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileHeader extends StatelessWidget {
+  const _MobileHeader({
+    required this.syncing,
+    required this.onSearch,
+    required this.onUpdate,
+    required this.onSync,
+    required this.onSyncPage,
+  });
+
+  final bool syncing;
+  final VoidCallback onSearch;
+  final VoidCallback onUpdate;
+  final VoidCallback? onSync;
+  final VoidCallback onSyncPage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      decoration: const BoxDecoration(
+        color: _sidebarBackground,
+        border: Border(bottom: BorderSide(color: Color(0xFFD4E4E1))),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'MyTodo',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: const Color(0xFF073F3B),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+                Text(
+                  '本地优先，跨设备同步',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF406562),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _TopIconButton(tooltip: '搜索历史', icon: Icons.search, onTap: onSearch),
+          _TopIconButton(
+            tooltip: '检查更新',
+            icon: Icons.system_update,
+            onTap: onUpdate,
+          ),
+          _TopIconButton(
+            tooltip: '立即同步',
+            icon: Icons.sync,
+            busy: syncing,
+            onTap: onSync,
+          ),
+          _TopIconButton(
+            tooltip: '同步和设备',
+            icon: Icons.devices,
+            onTap: onSyncPage,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileNavStrip extends StatelessWidget {
+  const _MobileNavStrip({
+    required this.entries,
+    required this.selectedId,
+    required this.controller,
+    required this.onSelected,
+  });
+
+  final List<TodoNavEntry> entries;
+  final String selectedId;
+  final AppController controller;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 88,
+      decoration: const BoxDecoration(
+        color: _sidebarBackground,
+        border: Border(bottom: BorderSide(color: Color(0xFFD4E4E1))),
+      ),
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        scrollDirection: Axis.horizontal,
+        itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+          final selected = entry.id == selectedId;
+          final count = controller.store.activeCountFor(entry.id);
+          return _MobileNavPill(
+            entry: entry,
+            count: count,
+            selected: selected,
+            onTap: () => onSelected(entry.id),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MobileNavPill extends StatelessWidget {
+  const _MobileNavPill({
+    required this.entry,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final TodoNavEntry entry;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? _appAccent.withValues(alpha: 0.16) : Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 138,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? _appAccent.withValues(alpha: 0.36)
+                  : const Color(0xFFD4E4E1),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(entry.icon, size: 20, color: entry.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  entry.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: const Color(0xFF163F3B),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (count > 0)
+                Text(
+                  count.toString(),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: _appAccent,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TodoSidebar extends StatelessWidget {
+  const _TodoSidebar({
+    required this.entries,
+    required this.selectedId,
+    required this.controller,
+    required this.onSelected,
+    required this.onAddTodo,
+    required this.onOpenSync,
+  });
+
+  final List<TodoNavEntry> entries;
+  final String selectedId;
+  final AppController controller;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onAddTodo;
+  final VoidCallback onOpenSync;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 336,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      decoration: const BoxDecoration(
+        color: _sidebarBackground,
+        border: Border(right: BorderSide(color: Color(0xFFD4E4E1))),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'MyTodo',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: const Color(0xFF073F3B),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '本地优先，跨设备同步',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF406562),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: onAddTodo,
+            style: FilledButton.styleFrom(
+              backgroundColor: _appAccent,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+            icon: const Icon(Icons.add),
+            label: const Text('添加任务'),
+          ),
+          const SizedBox(height: 22),
+          Text(
+            '清单',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: const Color(0xFF103F3B),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: ListView.separated(
+              itemCount: entries.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                return _SidebarNavTile(
+                  entry: entry,
+                  count: controller.store.activeCountFor(entry.id),
+                  selected: entry.id == selectedId,
+                  onTap: () => onSelected(entry.id),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: onOpenSync,
+            icon: const Icon(Icons.devices),
+            label: const Text('同步和设备'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarNavTile extends StatelessWidget {
+  const _SidebarNavTile({
+    required this.entry,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final TodoNavEntry entry;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = selected
+        ? _appAccent.withValues(alpha: 0.16)
+        : Colors.transparent;
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? _appAccent.withValues(alpha: 0.22)
+                      : Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(entry.icon, size: 20, color: entry.accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: const Color(0xFF163F3B),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      entry.isVirtual ? subtitleForView(entry.id) : '全部任务',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF587370),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (count > 0)
+                Text(
+                  count.toString(),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: _appAccent,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              if (selected) ...[
+                const SizedBox(width: 10),
+                Container(
+                  width: 6,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: _appAccent,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TopCommandBar extends StatelessWidget {
+  const _TopCommandBar({
+    required this.syncing,
+    required this.onSearch,
+    required this.onUpdate,
+    required this.onSync,
+    required this.onSyncPage,
+  });
+
+  final bool syncing;
+  final VoidCallback onSearch;
+  final VoidCallback onUpdate;
+  final VoidCallback? onSync;
+  final VoidCallback onSyncPage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFE1E9E7))),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          _TopIconButton(tooltip: '搜索历史', icon: Icons.search, onTap: onSearch),
+          _TopIconButton(
+            tooltip: '检查更新',
+            icon: Icons.system_update,
+            onTap: onUpdate,
+          ),
+          _TopIconButton(
+            tooltip: '立即同步',
+            icon: Icons.sync,
+            busy: syncing,
+            onTap: onSync,
+          ),
+          _TopIconButton(
+            tooltip: '同步和设备',
+            icon: Icons.devices,
+            onTap: onSyncPage,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TopIconButton extends StatelessWidget {
+  const _TopIconButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+    this.busy = false,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onTap,
+        icon: busy
+            ? const SizedBox.square(
+                dimension: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(icon, size: 20),
+        color: const Color(0xFF0E4D49),
+      ),
+    );
+  }
+}
+
+class _TodoContentPage extends StatefulWidget {
+  const _TodoContentPage({
+    required this.entry,
+    required this.controller,
+    required this.onAddTodo,
+    this.onRefresh,
+    this.compact = false,
+  });
+
+  final TodoNavEntry entry;
+  final AppController controller;
+  final VoidCallback onAddTodo;
+  final Future<void> Function()? onRefresh;
+  final bool compact;
+
+  @override
+  State<_TodoContentPage> createState() => _TodoContentPageState();
+}
+
+class _TodoContentPageState extends State<_TodoContentPage> {
+  TodoViewFilter _filter = TodoViewFilter.active;
+
+  @override
+  Widget build(BuildContext context) {
+    final todos = widget.controller.store.visibleTodosForList(widget.entry.id);
+    final filteredTodos = filterTodosByView(
+      todos,
+      _filter,
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    final list = _TodoList(
+      todos: filteredTodos,
+      controller: widget.controller,
+      historyMode: false,
+      emptyLabel: _emptyLabel,
+      onAddTodo: widget.onAddTodo,
+    );
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 980),
+        child: Padding(
+          padding: widget.compact
+              ? const EdgeInsets.fromLTRB(12, 14, 12, 0)
+              : const EdgeInsets.fromLTRB(24, 32, 24, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _ContentHeader(entry: widget.entry),
+              const SizedBox(height: 16),
+              _TodoOverview(
+                todos: todos,
+                selectedFilter: _filter,
+                onFilterChanged: (filter) {
+                  setState(() => _filter = filter);
+                },
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: widget.onRefresh == null
+                    ? list
+                    : RefreshIndicator(
+                        onRefresh: widget.onRefresh!,
+                        child: list,
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String get _emptyLabel {
+    return switch (_filter) {
+      TodoViewFilter.active => '暂无当前任务',
+      TodoViewFilter.overdue => '没有逾期任务',
+      TodoViewFilter.completed => '还没有已完成任务',
+    };
+  }
+}
+
+class _ContentHeader extends StatelessWidget {
+  const _ContentHeader({required this.entry});
+
+  final TodoNavEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: entry.accent.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        children: [
+          Icon(entry.icon, color: entry.accent, size: 30),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.name,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: const Color(0xFF123F3B),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  entry.isVirtual
+                      ? subtitleForView(entry.id)
+                      : '按完成状态查看和处理当前清单任务',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF4D6B68),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AddTodoIntent extends Intent {
   const _AddTodoIntent();
 }
@@ -307,13 +1011,11 @@ class _TodoPanel extends StatefulWidget {
     required this.controller,
     required this.scrollTodos,
     required this.onAddTodo,
-    this.onRefresh,
   });
 
   final AppController controller;
   final bool scrollTodos;
   final VoidCallback onAddTodo;
-  final Future<void> Function()? onRefresh;
 
   @override
   State<_TodoPanel> createState() => _TodoPanelState();
@@ -349,14 +1051,7 @@ class _TodoPanelState extends State<_TodoPanel> {
           },
         ),
         const SizedBox(height: 16),
-        if (widget.scrollTodos)
-          Expanded(
-            child: widget.onRefresh == null
-                ? list
-                : RefreshIndicator(onRefresh: widget.onRefresh!, child: list),
-          )
-        else
-          list,
+        if (widget.scrollTodos) Expanded(child: list) else list,
       ],
     );
   }
@@ -782,6 +1477,8 @@ Future<void> _showTodoEditorDialog(
   required AppController controller,
   required String title,
   TodoItem? todo,
+  String initialListId = TodoList.inboxId,
+  bool initialImportant = false,
 }) async {
   final titleController = TextEditingController(text: todo?.title ?? '');
   var dueAt = todo?.dueAt;
@@ -932,8 +1629,10 @@ Future<void> _showTodoEditorDialog(
   if (todo == null) {
     await controller.store.createTodo(
       result.title,
+      listId: initialListId,
       dueAt: result.dueAt,
       reminderAt: result.reminderAt,
+      important: initialImportant,
     );
   } else {
     await controller.store.updateTodo(
@@ -941,6 +1640,7 @@ Future<void> _showTodoEditorDialog(
       title: result.title,
       dueAt: result.dueAt,
       reminderAt: result.reminderAt,
+      listId: todo.listId,
     );
   }
 }

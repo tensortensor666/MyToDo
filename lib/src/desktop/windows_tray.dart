@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -10,7 +11,7 @@ import '../app_controller.dart';
 const _trayIconPath = 'assets/brand/mytodo_tray.ico';
 
 Future<void> initializeWindowsWindow() async {
-  if (!Platform.isWindows) {
+  if (kIsWeb || !Platform.isWindows) {
     return;
   }
 
@@ -37,7 +38,7 @@ class WindowsTrayController with TrayListener, WindowListener {
   bool _refreshQueued = false;
 
   Future<void> initialize() async {
-    if (!Platform.isWindows || _initialized) {
+    if (kIsWeb || !Platform.isWindows || _initialized) {
       return;
     }
     _initialized = true;
@@ -100,7 +101,7 @@ class WindowsTrayController with TrayListener, WindowListener {
   }
 
   Future<void> showWindow() async {
-    if (!Platform.isWindows || _quitting) {
+    if (kIsWeb || !Platform.isWindows || _quitting) {
       return;
     }
     await windowManager.setSkipTaskbar(false);
@@ -111,7 +112,7 @@ class WindowsTrayController with TrayListener, WindowListener {
   }
 
   Future<void> hideToTray() async {
-    if (!Platform.isWindows || _quitting) {
+    if (kIsWeb || !Platform.isWindows || _quitting) {
       return;
     }
     await windowManager.setSkipTaskbar(true);
@@ -120,7 +121,7 @@ class WindowsTrayController with TrayListener, WindowListener {
   }
 
   Future<void> quit() async {
-    if (!Platform.isWindows || _quitting) {
+    if (kIsWeb || !Platform.isWindows || _quitting) {
       return;
     }
     _quitting = true;

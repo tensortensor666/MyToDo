@@ -40,9 +40,12 @@ void main() {
 
       await firstStore.createTodo('From first');
       await secondStore.createTodo('From second');
+      final firstLife = await firstStore.createTodoList('Life');
+      await firstStore.createRecurringTemplate('Brush teeth', listId: firstLife.id);
 
       await firstSync.syncAllTrustedDevices();
       await secondSync.syncAllTrustedDevices();
+      await secondStore.ensureDailyRecurringTodos();
 
       expect(
         firstStore.todos.map((todo) => todo.title),
@@ -51,6 +54,15 @@ void main() {
       expect(
         secondStore.todos.map((todo) => todo.title),
         containsAll(<String>['From first', 'From second']),
+      );
+      expect(secondStore.listById(firstLife.id)?.name, 'Life');
+      expect(
+        secondStore.recurringTemplates.map((template) => template.title),
+        contains('Brush teeth'),
+      );
+      expect(
+        secondStore.visibleTodosForList(firstLife.id).map((todo) => todo.title),
+        contains('Brush teeth'),
       );
     },
   );

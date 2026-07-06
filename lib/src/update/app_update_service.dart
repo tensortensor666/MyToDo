@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -67,6 +69,7 @@ class UpdateCheckResult {
       AppUpdateService.compareVersions(latestVersion, currentVersion) > 0;
 
   UpdateAsset? get recommendedAsset {
+    if (kIsWeb) return null;
     if (Platform.isWindows) {
       return _firstAssetContaining(['windows-x64-setup.exe']) ??
           _firstAssetContaining(['windows-x64.zip']);

@@ -21,10 +21,14 @@ class TodoStore extends ChangeNotifier {
   final Database _db;
   List<TodoItem> _todos = const [];
   List<TodoItem> _todoHistory = const [];
+  List<TodoList> _lists = const [];
+  List<RecurringTemplate> _recurringTemplates = const [];
   List<TrustedDevice> _trustedDevices = const [];
 
   List<TodoItem> get todos => _todos;
   List<TodoItem> get todoHistory => _todoHistory;
+  List<TodoList> get lists => _lists;
+  List<RecurringTemplate> get recurringTemplates => _recurringTemplates;
   List<TrustedDevice> get trustedDevices => _trustedDevices;
 
   static Future<TodoStore> open() async {
@@ -49,16 +53,18 @@ class TodoStore extends ChangeNotifier {
     final dbPath = p.join(supportDir.path, 'mytodo.sqlite');
     final db = await openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
     );
+    await _ensureSchema(db);
 
     final store = TodoStore._(
       LocalDevice(deviceId: deviceId, name: name, token: token),
       db,
     );
     await store.reload();
+    await store.ensureDailyRecurringTodos();
     return store;
   }
 
@@ -74,31 +80,75 @@ class TodoStore extends ChangeNotifier {
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: _createSchema,
+        onUpgrade: _upgradeSchema,
         singleInstance: false,
       ),
     );
+    await _ensureSchema(db);
+    final store = TodoStore._(device, db);
+    await store.reload();
+    return store;
+  }
+
+  @visibleForTesting
+  static Future<TodoStore> openPathForTesting({
+    required LocalDevice device,
+    required String dbPath,
+  }) async {
+    if (!_ffiInitialized) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      _ffiInitialized = true;
+    }
+    final db = await databaseFactory.openDatabase(
+      dbPath,
+      options: OpenDatabaseOptions(
+        version: 3,
+        onCreate: _createSchema,
+        onUpgrade: _upgradeSchema,
+        singleInstance: false,
+      ),
+    );
+    await _ensureSchema(db);
     final store = TodoStore._(device, db);
     await store.reload();
     return store;
   }
 
   static Future<void> _createSchema(Database db, int version) async {
+    await _ensureSchema(db);
+  }
+
+  static Future<void> _upgradeSchema(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    await _ensureSchema(db);
+  }
+
+  static Future<void> _ensureSchema(DatabaseExecutor db) async {
     await db.execute('''
-CREATE TABLE todos (
+CREATE TABLE IF NOT EXISTS todos (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   completed INTEGER NOT NULL,
   deleted INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  list_id TEXT NOT NULL DEFAULT '${TodoList.inboxId}',
+  template_id TEXT,
+  task_date TEXT,
+  source_type TEXT NOT NULL DEFAULT '${TodoSource.manual}',
   due_at INTEGER,
   reminder_at INTEGER
 )
 ''');
+    await _ensureTodoColumns(db);
     await db.execute('''
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
   event_id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
@@ -108,11 +158,8 @@ CREATE TABLE events (
   payload_json TEXT NOT NULL
 )
 ''');
-    await db.execute(
-      'CREATE INDEX events_device_seq_idx ON events(device_id, seq)',
-    );
     await db.execute('''
-CREATE TABLE trusted_devices (
+CREATE TABLE IF NOT EXISTS trusted_devices (
   device_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   base_url TEXT NOT NULL,
@@ -120,16 +167,119 @@ CREATE TABLE trusted_devices (
   last_seen_at INTEGER NOT NULL
 )
 ''');
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS todo_lists (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  is_system INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)
+''');
+    await _ensureListColumns(db);
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS recurring_templates (
+  id TEXT PRIMARY KEY,
+  list_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  repeat_type TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  archived INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)
+''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS events_device_seq_idx ON events(device_id, seq)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS todos_list_updated_idx ON todos(list_id, completed, due_at, updated_at)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS todos_template_date_idx ON todos(template_id, task_date) WHERE template_id IS NOT NULL',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS recurring_templates_list_idx ON recurring_templates(list_id, archived)',
+    );
+    await _seedSystemLists(db);
   }
 
-  static Future<void> _upgradeSchema(
-    Database db,
-    int oldVersion,
-    int newVersion,
-  ) async {
-    if (oldVersion < 2) {
+  static Future<void> _ensureTodoColumns(DatabaseExecutor db) async {
+    final columns = await _tableColumns(db, 'todos');
+    if (!columns.contains('due_at')) {
       await db.execute('ALTER TABLE todos ADD COLUMN due_at INTEGER');
+    }
+    if (!columns.contains('reminder_at')) {
       await db.execute('ALTER TABLE todos ADD COLUMN reminder_at INTEGER');
+    }
+    if (!columns.contains('list_id')) {
+      await db.execute(
+        'ALTER TABLE todos ADD COLUMN list_id TEXT NOT NULL DEFAULT \'${TodoList.inboxId}\'',
+      );
+    }
+    if (!columns.contains('template_id')) {
+      await db.execute('ALTER TABLE todos ADD COLUMN template_id TEXT');
+    }
+    if (!columns.contains('task_date')) {
+      await db.execute('ALTER TABLE todos ADD COLUMN task_date TEXT');
+    }
+    if (!columns.contains('source_type')) {
+      await db.execute(
+        'ALTER TABLE todos ADD COLUMN source_type TEXT NOT NULL DEFAULT \'${TodoSource.manual}\'',
+      );
+    }
+    if (!columns.contains('important')) {
+      await db.execute(
+        'ALTER TABLE todos ADD COLUMN important INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
+  static Future<void> _ensureListColumns(DatabaseExecutor db) async {
+    final columns = await _tableColumns(db, 'todo_lists');
+    if (!columns.contains('color')) {
+      await db.execute('ALTER TABLE todo_lists ADD COLUMN color INTEGER');
+    }
+  }
+
+  static Future<Set<String>> _tableColumns(
+    DatabaseExecutor db,
+    String tableName,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info($tableName)');
+    return rows
+        .map((row) => row['name'])
+        .whereType<String>()
+        .toSet();
+  }
+
+  static Future<void> _seedSystemLists(DatabaseExecutor db) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final systemLists = [
+      TodoList(
+        id: TodoList.inboxId,
+        name: '全部',
+        sortOrder: 0,
+        isSystem: true,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      TodoList(
+        id: TodoList.dailyId,
+        name: '生活日常',
+        sortOrder: 1,
+        isSystem: true,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+    for (final list in systemLists) {
+      await db.insert(
+        'todo_lists',
+        list.toDb(),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
     }
   }
 
@@ -143,26 +293,83 @@ CREATE TABLE trusted_devices (
   }
 
   Future<void> reload() async {
+    await _seedSystemLists(_db);
+    final listRows = await _db.query(
+      'todo_lists',
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
+    final templateRows = await _db.query(
+      'recurring_templates',
+      orderBy: 'archived ASC, created_at ASC',
+    );
     final historyRows = await _db.query(
       'todos',
       orderBy:
-          'deleted ASC, completed ASC, due_at IS NULL ASC, due_at ASC, updated_at DESC',
+          'deleted ASC, completed ASC, task_date DESC, due_at IS NULL ASC, due_at ASC, updated_at DESC',
     );
     final rows = await _db.query(
       'todos',
       where: 'deleted = 0',
-      orderBy: 'completed ASC, due_at IS NULL ASC, due_at ASC, updated_at DESC',
+      orderBy:
+          'completed ASC, task_date DESC, due_at IS NULL ASC, due_at ASC, updated_at DESC',
     );
     final trustedRows = await _db.query(
       'trusted_devices',
       orderBy: 'last_seen_at DESC',
     );
+    _lists = listRows.map(TodoList.fromDb).toList(growable: false);
+    _recurringTemplates = templateRows
+        .map(RecurringTemplate.fromDb)
+        .toList(growable: false);
     _todoHistory = historyRows.map(TodoItem.fromDb).toList(growable: false);
     _todos = rows.map(TodoItem.fromDb).toList(growable: false);
     _trustedDevices = trustedRows
         .map(TrustedDevice.fromDb)
         .toList(growable: false);
     notifyListeners();
+  }
+
+  TodoList? listById(String id) {
+    for (final list in _lists) {
+      if (list.id == id) {
+        return list;
+      }
+    }
+    return null;
+  }
+
+  List<TodoItem> visibleTodosForList(String listId) {
+    switch (listId) {
+      case TodoList.viewMyDayId:
+        final today = _formatTaskDate(DateTime.now());
+        final startOfDay = _startOfDayMs(DateTime.now());
+        final endOfDay = _endOfDayMs(DateTime.now());
+        return _todos
+            .where((todo) {
+              if (todo.taskDate == today) {
+                return true;
+              }
+              final due = todo.dueAt;
+              return due != null && due >= startOfDay && due <= endOfDay;
+            })
+            .toList(growable: false);
+      case TodoList.viewImportantId:
+        return _todos.where((todo) => todo.important).toList(growable: false);
+      case TodoList.viewPlannedId:
+        final planned = _todos.where((todo) => todo.dueAt != null).toList();
+        planned.sort((a, b) => a.dueAt!.compareTo(b.dueAt!));
+        return planned;
+      case TodoList.inboxId:
+        return _todos;
+      default:
+        return _todos
+            .where((todo) => todo.listId == listId)
+            .toList(growable: false);
+    }
+  }
+
+  int activeCountFor(String listId) {
+    return visibleTodosForList(listId).where((todo) => !todo.completed).length;
   }
 
   List<TodoItem> searchTodos(String query) {
@@ -175,7 +382,163 @@ CREATE TABLE trusted_devices (
         .toList(growable: false);
   }
 
-  Future<void> createTodo(String title, {int? dueAt, int? reminderAt}) async {
+  Future<TodoList> createTodoList(String name, {int? color}) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('List name cannot be empty');
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sortOrder = _lists.isEmpty ? 0 : _lists.last.sortOrder + 1;
+    final list = TodoList(
+      id: _uuid.v4(),
+      name: trimmed,
+      sortOrder: sortOrder,
+      isSystem: false,
+      createdAt: now,
+      updatedAt: now,
+      color: color,
+    );
+    await _writeLocalEntityEvent('list.upsert', list.id, list.toJson());
+    return list;
+  }
+
+  Future<void> renameTodoList(TodoList list, String name) async {
+    if (list.isSystem) {
+      return;
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == list.name) {
+      return;
+    }
+    await _writeLocalEntityEvent(
+      'list.upsert',
+      list.id,
+      list.copyWith(
+        name: trimmed,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ).toJson(),
+    );
+  }
+
+  Future<void> deleteTodoList(TodoList list) async {
+    if (list.isSystem) {
+      return;
+    }
+    await _writeLocalEntityEvent('list.delete', list.id, list.toJson());
+  }
+
+  Future<RecurringTemplate> createRecurringTemplate(
+    String title, {
+    required String listId,
+  }) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError('Template title cannot be empty');
+    }
+    final now = DateTime.now();
+    final template = RecurringTemplate(
+      id: _uuid.v4(),
+      listId: listId,
+      title: trimmed,
+      repeatType: RepeatType.daily,
+      startDate: _formatTaskDate(now),
+      archived: false,
+      createdAt: now.millisecondsSinceEpoch,
+      updatedAt: now.millisecondsSinceEpoch,
+    );
+    await _writeLocalEntityEvent(
+      'template.upsert',
+      template.id,
+      template.toJson(),
+    );
+    await ensureDailyRecurringTodos(now: now);
+    return template;
+  }
+
+  Future<void> updateRecurringTemplate(
+    RecurringTemplate template, {
+    required String title,
+    required String listId,
+  }) async {
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    final updated = template.copyWith(
+      title: trimmed,
+      listId: listId,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _writeLocalEntityEvent(
+      'template.upsert',
+      updated.id,
+      updated.toJson(),
+    );
+  }
+
+  Future<void> archiveRecurringTemplate(RecurringTemplate template) async {
+    final archived = template.copyWith(
+      archived: true,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _writeLocalEntityEvent(
+      'template.upsert',
+      archived.id,
+      archived.toJson(),
+    );
+  }
+
+  Future<void> ensureDailyRecurringTodos({DateTime? now}) async {
+    final effectiveNow = now ?? DateTime.now();
+    final today = _formatTaskDate(effectiveNow);
+    var inserted = false;
+    await _db.transaction((txn) async {
+      await _seedSystemLists(txn);
+      final templateRows = await txn.query(
+        'recurring_templates',
+        where: 'archived = 0 AND repeat_type = ? AND start_date <= ?',
+        whereArgs: [RepeatType.daily, today],
+      );
+      for (final row in templateRows) {
+        final template = RecurringTemplate.fromDb(row);
+        final existing = Sqflite.firstIntValue(
+          await txn.rawQuery(
+            'SELECT COUNT(*) FROM todos WHERE template_id = ? AND task_date = ?',
+            [template.id, today],
+          ),
+        );
+        if (existing != null && existing > 0) {
+          continue;
+        }
+        final timestamp = effectiveNow.millisecondsSinceEpoch;
+        final todo = TodoItem(
+          id: _uuid.v4(),
+          title: template.title,
+          completed: false,
+          deleted: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          listId: template.listId,
+          templateId: template.id,
+          taskDate: today,
+          sourceType: TodoSource.recurring,
+        );
+        await txn.insert('todos', todo.toDb());
+        inserted = true;
+      }
+    });
+    if (inserted) {
+      await reload();
+    }
+  }
+
+  Future<void> createTodo(
+    String title, {
+    String listId = TodoList.inboxId,
+    int? dueAt,
+    int? reminderAt,
+    bool important = false,
+  }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
       return;
@@ -188,8 +551,10 @@ CREATE TABLE trusted_devices (
       deleted: false,
       createdAt: now,
       updatedAt: now,
+      listId: listId,
       dueAt: dueAt,
       reminderAt: reminderAt,
+      important: important,
     );
     await _writeLocalTodoEvent('todo.upsert', todo);
   }
@@ -197,24 +562,31 @@ CREATE TABLE trusted_devices (
   Future<void> updateTodo(
     TodoItem todo, {
     required String title,
-    int? dueAt,
-    int? reminderAt,
+    required int? dueAt,
+    required int? reminderAt,
+    required String listId,
+    bool? important,
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
       return;
     }
+    final nextImportant = important ?? todo.important;
     if (trimmed == todo.title &&
         dueAt == todo.dueAt &&
-        reminderAt == todo.reminderAt) {
+        reminderAt == todo.reminderAt &&
+        listId == todo.listId &&
+        nextImportant == todo.important) {
       return;
     }
     await _writeLocalTodoEvent(
       'todo.upsert',
       todo.copyWith(
         title: trimmed,
+        listId: listId,
         dueAt: dueAt,
         reminderAt: reminderAt,
+        important: nextImportant,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
@@ -227,6 +599,33 @@ CREATE TABLE trusted_devices (
         completed: completed,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
+    );
+  }
+
+  Future<void> setImportant(TodoItem todo, bool important) async {
+    if (todo.important == important) {
+      return;
+    }
+    await _writeLocalTodoEvent(
+      'todo.upsert',
+      todo.copyWith(
+        important: important,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  Future<void> setListColor(TodoList list, int? color) async {
+    if (list.isSystem || list.color == color) {
+      return;
+    }
+    await _writeLocalEntityEvent(
+      'list.upsert',
+      list.id,
+      list.copyWith(
+        color: color,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ).toJson(),
     );
   }
 
@@ -265,6 +664,14 @@ CREATE TABLE trusted_devices (
   }
 
   Future<void> _writeLocalTodoEvent(String type, TodoItem todo) async {
+    await _writeLocalEntityEvent(type, todo.id, todo.toJson());
+  }
+
+  Future<void> _writeLocalEntityEvent(
+    String type,
+    String entityId,
+    Map<String, Object?> payload,
+  ) async {
     final seq = await _nextLocalSeq();
     final event = TodoEvent(
       eventId: _uuid.v4(),
@@ -272,8 +679,8 @@ CREATE TABLE trusted_devices (
       seq: seq,
       timestamp: DateTime.now().millisecondsSinceEpoch,
       type: type,
-      todoId: todo.id,
-      payload: todo.toJson(),
+      todoId: entityId,
+      payload: payload,
     );
     await _db.transaction((txn) async {
       await txn.insert('events', event.toDb());
@@ -302,13 +709,10 @@ CREATE TABLE trusted_devices (
 
   Future<List<TodoEvent>> eventsAfterClock(Map<String, int> clock) async {
     final rows = await _db.query('events', orderBy: 'timestamp ASC, seq ASC');
-    final events = rows
+    return rows
         .map(TodoEvent.fromDb)
-        .where((event) {
-          return event.seq > (clock[event.deviceId] ?? 0);
-        })
+        .where((event) => event.seq > (clock[event.deviceId] ?? 0))
         .toList(growable: false);
-    return events;
   }
 
   Future<List<TodoEvent>> allEvents() async {
@@ -321,9 +725,10 @@ CREATE TABLE trusted_devices (
     await _db.transaction((txn) async {
       for (final event in events) {
         final exists = Sqflite.firstIntValue(
-          await txn.rawQuery('SELECT COUNT(*) FROM events WHERE event_id = ?', [
-            event.eventId,
-          ]),
+          await txn.rawQuery(
+            'SELECT COUNT(*) FROM events WHERE event_id = ?',
+            [event.eventId],
+          ),
         );
         if (exists != 0) {
           continue;
@@ -343,9 +748,28 @@ CREATE TABLE trusted_devices (
     Transaction txn,
     TodoEvent event,
   ) async {
-    if (event.type != 'todo.upsert' && event.type != 'todo.delete') {
-      return;
+    switch (event.type) {
+      case 'todo.upsert':
+      case 'todo.delete':
+        await _applyTodoEventInTransaction(txn, event);
+        return;
+      case 'list.upsert':
+        await _applyListUpsertInTransaction(txn, event);
+        return;
+      case 'list.delete':
+        await _applyListDeleteInTransaction(txn, event);
+        return;
+      case 'template.upsert':
+      case 'template.delete':
+        await _applyTemplateEventInTransaction(txn, event);
+        return;
     }
+  }
+
+  Future<void> _applyTodoEventInTransaction(
+    Transaction txn,
+    TodoEvent event,
+  ) async {
     final incoming = TodoItem.fromJson(event.payload);
     final existingRows = await txn.query(
       'todos',
@@ -366,6 +790,92 @@ CREATE TABLE trusted_devices (
     );
   }
 
+  Future<void> _applyListUpsertInTransaction(
+    Transaction txn,
+    TodoEvent event,
+  ) async {
+    final incoming = TodoList.fromJson(event.payload);
+    final existingRows = await txn.query(
+      'todo_lists',
+      where: 'id = ?',
+      whereArgs: [incoming.id],
+      limit: 1,
+    );
+    if (existingRows.isNotEmpty) {
+      final existing = TodoList.fromDb(existingRows.first);
+      if (incoming.updatedAt < existing.updatedAt) {
+        return;
+      }
+    }
+    await txn.insert(
+      'todo_lists',
+      incoming.toDb(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> _applyListDeleteInTransaction(
+    Transaction txn,
+    TodoEvent event,
+  ) async {
+    final incoming = TodoList.fromJson(event.payload);
+    if (incoming.isSystem) {
+      return;
+    }
+    final existingRows = await txn.query(
+      'todo_lists',
+      where: 'id = ?',
+      whereArgs: [incoming.id],
+      limit: 1,
+    );
+    if (existingRows.isNotEmpty) {
+      final existing = TodoList.fromDb(existingRows.first);
+      if (incoming.updatedAt < existing.updatedAt) {
+        return;
+      }
+    }
+    await txn.update(
+      'todos',
+      {'list_id': TodoList.inboxId},
+      where: 'list_id = ?',
+      whereArgs: [incoming.id],
+    );
+    await txn.update(
+      'recurring_templates',
+      {
+        'list_id': TodoList.inboxId,
+        'updated_at': event.timestamp,
+      },
+      where: 'list_id = ?',
+      whereArgs: [incoming.id],
+    );
+    await txn.delete('todo_lists', where: 'id = ?', whereArgs: [incoming.id]);
+  }
+
+  Future<void> _applyTemplateEventInTransaction(
+    Transaction txn,
+    TodoEvent event,
+  ) async {
+    final incoming = RecurringTemplate.fromJson(event.payload);
+    final existingRows = await txn.query(
+      'recurring_templates',
+      where: 'id = ?',
+      whereArgs: [incoming.id],
+      limit: 1,
+    );
+    if (existingRows.isNotEmpty) {
+      final existing = RecurringTemplate.fromDb(existingRows.first);
+      if (incoming.updatedAt < existing.updatedAt) {
+        return;
+      }
+    }
+    await txn.insert(
+      'recurring_templates',
+      incoming.toDb(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<void> upsertTrustedDevice(TrustedDevice device) async {
     await _db.insert(
       'trusted_devices',
@@ -376,9 +886,9 @@ CREATE TABLE trusted_devices (
   }
 
   TrustedDevice? trustedDeviceById(String deviceId) {
-    for (final device in _trustedDevices) {
-      if (device.deviceId == deviceId) {
-        return device;
+    for (final trustedDevice in _trustedDevices) {
+      if (trustedDevice.deviceId == deviceId) {
+        return trustedDevice;
       }
     }
     return null;
@@ -391,9 +901,11 @@ CREATE TABLE trusted_devices (
     final file = File(p.join(supportDir.path, fileName));
     final data = {
       'app': 'mytodo',
-      'version': 1,
+      'version': 2,
       'generatedAt': now.toIso8601String(),
       'device': {'deviceId': device.deviceId, 'name': device.name},
+      'lists': _lists.map((item) => item.toJson()).toList(),
+      'recurringTemplates': _recurringTemplates.map((item) => item.toJson()).toList(),
       'todos': _todoHistory.map((todo) => todo.toJson()).toList(),
       'trustedDevices': _trustedDevices.map((item) => item.toDb()).toList(),
       'events': (await allEvents()).map((event) => event.toJson()).toList(),
@@ -409,5 +921,26 @@ CREATE TABLE trusted_devices (
     String two(int number) => number.toString().padLeft(2, '0');
     return '${value.year}${two(value.month)}${two(value.day)}-'
         '${two(value.hour)}${two(value.minute)}${two(value.second)}';
+  }
+
+  static String _formatTaskDate(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${two(value.month)}-${two(value.day)}';
+  }
+
+  static int _startOfDayMs(DateTime value) {
+    return DateTime(value.year, value.month, value.day).millisecondsSinceEpoch;
+  }
+
+  static int _endOfDayMs(DateTime value) {
+    return DateTime(
+      value.year,
+      value.month,
+      value.day,
+      23,
+      59,
+      59,
+      999,
+    ).millisecondsSinceEpoch;
   }
 }

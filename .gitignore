@@ -58,3 +58,13 @@ app.*.map.json
 /ui-*.png
 /ui-*.xml
 /window*.xml
+
+# Temporary runtime logs
+.run_*.txt
+.web_debug.log
+*.tmp
+
+# Claude Code workspace
+.agents/
+.codex/
+skills-lock.json

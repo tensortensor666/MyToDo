@@ -4,6 +4,12 @@
 #ifndef MyAppVersion
 #define MyAppVersion "1.1.0"
 #endif
+#ifndef MyAppSourceDir
+#define MyAppSourceDir "..\..\build\windows\x64\runner\Release"
+#endif
+#ifndef MyAppOutputSuffix
+#define MyAppOutputSuffix ""
+#endif
 
 [Setup]
 AppId={{9F7EB78E-780C-4E4B-BC3C-9C7EA5AA8C39}
@@ -13,8 +19,8 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\MyTodo
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=..\..\dist
-OutputBaseFilename=MyTodo-{#MyAppVersion}-windows-x64-setup
+OutputDir=..\..\dist\windows\installers
+OutputBaseFilename=MyTodo-{#MyAppVersion}{#MyAppOutputSuffix}-windows-x64-setup
 SetupIconFile=..\..\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
@@ -30,7 +36,7 @@ RestartApplications=no
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

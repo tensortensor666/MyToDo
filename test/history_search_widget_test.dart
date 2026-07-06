@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mytodo/src/data/todo_models.dart';
 import 'package:mytodo/src/search/history_search.dart';
@@ -37,9 +37,9 @@ void main() {
     addTearDown(listenable.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: TodoHistorySearchResults(
+      FluentApp(
+        home: ScaffoldPage(
+          content: TodoHistorySearchResults(
             listenable: listenable,
             searchTodos: (_) => todos,
             query: '',
@@ -57,21 +57,21 @@ void main() {
     expect(find.text('Completed task'), findsOneWidget);
     expect(find.text('Deleted task'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, '当前'));
+    await tester.tap(find.text('当前'));
     await tester.pump();
 
     expect(find.text('Active task'), findsOneWidget);
     expect(find.text('Completed task'), findsNothing);
     expect(find.text('Deleted task'), findsNothing);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, '已完成'));
+    await tester.tap(find.text('已完成'));
     await tester.pump();
 
     expect(find.text('Active task'), findsNothing);
     expect(find.text('Completed task'), findsOneWidget);
     expect(find.text('Deleted task'), findsNothing);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, '已删除'));
+    await tester.tap(find.text('已删除'));
     await tester.pump();
 
     expect(find.text('Active task'), findsNothing);

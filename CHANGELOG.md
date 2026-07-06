@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.5 - 2026-07-06
+
+- Restored the accepted two-pane task UI with list navigation for desktop.
+- Added an adaptive Android layout with a compact header and horizontal list switcher.
+- Added system list views for My Day, Important, Planned, Inbox, and custom lists.
+- Added important flags, custom lists, recurring daily templates, list colors, and sync support for those entities.
+- Updated Windows installer output handling and release packaging for the new artifact layout.
+
 ## 1.3.4 - 2026-06-27
 
 - Added clickable current, overdue, and completed filters on the main task view.
