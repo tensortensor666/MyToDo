@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.4 - 2026-07-06
+
+- Removed LAN pairing and local network device sync.
+- Kept Supabase as the only sync path and made configured remote sync trigger immediately after local changes.
+
 ## 1.4.3 - 2026-07-06
 
 - Fixed the Windows sidebar toggle so it switches between expanded and compact navigation modes.

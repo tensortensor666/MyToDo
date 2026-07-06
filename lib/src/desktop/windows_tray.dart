@@ -91,7 +91,7 @@ class WindowsTrayController with TrayListener, WindowListener {
           ),
           MenuItem.separator(),
           MenuItem(key: 'show', label: '打开 MyTodo'),
-          MenuItem(key: 'sync', label: '立即同步'),
+          MenuItem(key: 'sync', label: '立即远程同步'),
           MenuItem(key: 'hide', label: '隐藏到托盘'),
           MenuItem.separator(),
           MenuItem(key: 'quit', label: '退出'),
@@ -168,7 +168,9 @@ class WindowsTrayController with TrayListener, WindowListener {
   }
 
   Future<void> _syncFromTray() async {
-    await controller.sync.syncAllTrustedDevices();
+    if (controller.supabaseSync.config.canSync) {
+      await controller.supabaseSync.syncNow();
+    }
     await _refreshTrayPresentation();
   }
 }

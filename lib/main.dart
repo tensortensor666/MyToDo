@@ -4,8 +4,6 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import 'src/app_controller.dart';
 import 'src/data/todo_models.dart';
@@ -287,7 +285,7 @@ class _TodoHomeState extends State<TodoHome> {
   Future<void> _openSyncPage() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => SyncDevicesPage(controller: widget.controller),
+        builder: (_) => RemoteSyncPage(controller: widget.controller),
       ),
     );
   }
@@ -306,14 +304,19 @@ class _TodoHomeState extends State<TodoHome> {
       setState(() => _syncingFromHome = true);
     }
     try {
-      await widget.controller.sync.syncAllTrustedDevices();
-      if (widget.controller.supabaseSync.config.canSync) {
-        await widget.controller.supabaseSync.syncNow();
+      if (!widget.controller.supabaseSync.config.canSync) {
+        if (showResult && mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('远程同步未配置，无法同步')));
+        }
+        return;
       }
+      await widget.controller.supabaseSync.syncNow();
       if (showResult && mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('同步完成')));
+        ).showSnackBar(const SnackBar(content: Text('远程同步完成')));
       }
     } catch (error) {
       if (mounted) {
@@ -478,7 +481,7 @@ class _FluentTodoNavigationLayoutState
           ),
           fluent.PaneItemAction(
             icon: const Icon(Icons.devices),
-            title: const Text('同步和设备'),
+            title: const Text('远程同步'),
             onTap: widget.onSyncPage,
           ),
         ],
@@ -689,7 +692,7 @@ class _CompactNavigationDrawer extends StatelessWidget {
         ),
         _DrawerActionTile(
           icon: Icons.devices,
-          label: '同步和设备',
+          label: '远程同步',
           onTap: () {
             Navigator.of(context).pop();
             onSyncPage();
@@ -1987,47 +1990,49 @@ class _DateTimeField extends StatelessWidget {
   }
 }
 
-class SyncDevicesPage extends StatefulWidget {
-  const SyncDevicesPage({super.key, required this.controller});
+class RemoteSyncPage extends StatefulWidget {
+  const RemoteSyncPage({super.key, required this.controller});
 
   final AppController controller;
 
   @override
-  State<SyncDevicesPage> createState() => _SyncDevicesPageState();
+  State<RemoteSyncPage> createState() => _RemoteSyncPageState();
 }
 
-class _SyncDevicesPageState extends State<SyncDevicesPage> {
+class _RemoteSyncPageState extends State<RemoteSyncPage> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('同步和设备')),
+          appBar: AppBar(title: const Text('远程同步')),
           body: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 760),
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  _SyncActionGrid(
-                    onSync: _syncAll,
-                    onShowPairingCode: _showPairingCode,
-                    onPair: _openScannerOrManualPair,
-                    onExport: _exportBackup,
-                  ),
-                  const SizedBox(height: 20),
                   _SupabaseSyncSection(
                     controller: widget.controller,
-                    onSync: _syncSupabase,
+                    onSync: _syncRemote,
                     onSettings: _showSupabaseSettings,
                     onTest: _testSupabase,
                   ),
                   const SizedBox(height: 16),
-                  _SyncPanel(
-                    controller: widget.controller,
-                    shrinkWrap: true,
-                    showSyncButton: false,
+                  _SyncSection(
+                    title: '备份',
+                    icon: Icons.download,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: _exportBackup,
+                          icon: const Icon(Icons.download),
+                          label: const Text('导出备份'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -2038,58 +2043,13 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
     );
   }
 
-  Future<void> _showPairingCode() async {
-    final pairingInfo = widget.controller.sync.pairingInfo;
-    if (pairingInfo == null) {
+  Future<void> _syncRemote() async {
+    if (!widget.controller.supabaseSync.config.canSync) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('远程同步未配置，无法同步')));
       return;
     }
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('配对二维码'),
-          content: SizedBox(
-            width: 280,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                QrImageView(
-                  data: pairingInfo.toQrData(),
-                  size: 240,
-                  backgroundColor: Colors.white,
-                ),
-                const SizedBox(height: 12),
-                SelectableText(
-                  pairingInfo.baseUrl,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                SelectableText(
-                  'Token: ${pairingInfo.token}',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('关闭'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _syncAll() async {
-    await widget.controller.sync.syncAllTrustedDevices();
-    if (widget.controller.supabaseSync.config.canSync) {
-      await _syncSupabase();
-    }
-  }
-
-  Future<void> _syncSupabase() async {
     try {
       await widget.controller.supabaseSync.syncNow();
       if (!mounted) {
@@ -2097,14 +2057,14 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Supabase 同步完成')));
+      ).showSnackBar(const SnackBar(content: Text('远程同步完成')));
     } catch (error) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Supabase 同步失败: $error')));
+      ).showSnackBar(SnackBar(content: Text('同步失败: $error')));
     }
   }
 
@@ -2134,7 +2094,6 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
     final tableController = TextEditingController(text: config.tableName);
     final spaceController = TextEditingController(text: config.syncSpace);
     var enabled = config.enabled;
-    var autoSync = config.autoSync;
     try {
       final result = await showDialog<SupabaseSyncConfig>(
         context: context,
@@ -2158,17 +2117,7 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
                           setDialogState(() => enabled = value);
                         },
                       ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('自动同步'),
-                        subtitle: const Text('本地任务变化后自动上传，并每 5 分钟补偿同步'),
-                        value: autoSync,
-                        onChanged: enabled
-                            ? (value) {
-                                setDialogState(() => autoSync = value);
-                              }
-                            : null,
-                      ),
+                      const Text('启用后，本地任务变化会自动触发远程同步。'),
                       const SizedBox(height: 8),
                       TextField(
                         controller: restUrlController,
@@ -2223,7 +2172,7 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
                       Navigator.of(context).pop(
                         SupabaseSyncConfig(
                           enabled: enabled,
-                          autoSync: autoSync,
+                          autoSync: SupabaseSyncConfig.defaultAutoSync,
                           restUrl: restUrlController.text,
                           publishableKey: keyController.text,
                           tableName: tableController.text,
@@ -2251,96 +2200,6 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
     }
   }
 
-  Future<void> _openScannerOrManualPair() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      final data = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (_) => PairScannerPage(onManualPair: _showManualPairDialog),
-        ),
-      );
-      if (data != null && mounted) {
-        await _runPairing(() => widget.controller.sync.pairWithQrData(data));
-      }
-      return;
-    }
-    await _showManualPairDialog();
-  }
-
-  Future<void> _showManualPairDialog() async {
-    final urlController = TextEditingController();
-    final tokenController = TextEditingController();
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            title: const Text('手动配对'),
-            content: SizedBox(
-              width: 360,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: urlController,
-                    decoration: const InputDecoration(
-                      labelText: '对方地址',
-                      hintText: 'http://192.168.1.20:54321',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: tokenController,
-                    decoration: const InputDecoration(labelText: '对方 token'),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  Navigator.of(context).pop();
-                  await _runPairing(
-                    () => widget.controller.sync.pairWith(
-                      baseUrl: urlController.text.trim(),
-                      token: tokenController.text.trim(),
-                    ),
-                  );
-                },
-                child: const Text('配对'),
-              ),
-            ],
-          );
-        },
-      );
-    } finally {
-      urlController.dispose();
-      tokenController.dispose();
-    }
-  }
-
-  Future<void> _runPairing(Future<void> Function() action) async {
-    try {
-      await action();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('配对完成')));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('配对失败: $error')));
-    }
-  }
-
   Future<void> _exportBackup() async {
     try {
       final path = await widget.controller.store.exportBackup();
@@ -2358,83 +2217,6 @@ class _SyncDevicesPageState extends State<SyncDevicesPage> {
         context,
       ).showSnackBar(SnackBar(content: Text('导出失败: $error')));
     }
-  }
-}
-
-class _SyncActionGrid extends StatelessWidget {
-  const _SyncActionGrid({
-    required this.onSync,
-    required this.onShowPairingCode,
-    required this.onPair,
-    required this.onExport,
-  });
-
-  final VoidCallback onSync;
-  final VoidCallback onShowPairingCode;
-  final VoidCallback onPair;
-  final VoidCallback onExport;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _SyncActionButton(
-          filled: true,
-          icon: Icons.sync,
-          label: '同步',
-          onPressed: onSync,
-        ),
-        _SyncActionButton(
-          icon: Icons.qr_code_2,
-          label: '配对二维码',
-          onPressed: onShowPairingCode,
-        ),
-        _SyncActionButton(
-          icon: Icons.qr_code_scanner,
-          label: '扫码/手动配对',
-          onPressed: onPair,
-        ),
-        _SyncActionButton(
-          icon: Icons.download,
-          label: '导出备份',
-          onPressed: onExport,
-        ),
-      ],
-    );
-  }
-}
-
-class _SyncActionButton extends StatelessWidget {
-  const _SyncActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.filled = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-  final bool filled;
-
-  @override
-  Widget build(BuildContext context) {
-    final child = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [Icon(icon), const SizedBox(width: 8), Text(label)],
-    );
-    final style = ButtonStyle(
-      minimumSize: const WidgetStatePropertyAll(Size(150, 48)),
-      shape: WidgetStatePropertyAll(
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-    );
-    if (filled) {
-      return FilledButton(onPressed: onPressed, style: style, child: child);
-    }
-    return OutlinedButton(onPressed: onPressed, style: style, child: child);
   }
 }
 
@@ -2483,7 +2265,7 @@ class _SupabaseSyncSection extends StatelessWidget {
         _InfoRow(label: '地址', value: config.restUrl),
         _InfoRow(label: '表', value: config.tableName),
         _InfoRow(label: '空间', value: config.syncSpace),
-        _InfoRow(label: '自动', value: config.autoSync ? '开启' : '关闭'),
+        const _InfoRow(label: '自动', value: '本地变化后立即同步'),
         const SizedBox(height: 8),
         _StatusPill(text: controller.supabaseSync.status),
         const SizedBox(height: 12),
@@ -2532,97 +2314,6 @@ class _WarningText extends StatelessWidget {
           child: Text(text, style: TextStyle(color: scheme.error)),
         ),
       ],
-    );
-  }
-}
-
-class _SyncPanel extends StatelessWidget {
-  const _SyncPanel({
-    required this.controller,
-    this.shrinkWrap = false,
-    this.showSyncButton = true,
-  });
-
-  final AppController controller;
-  final bool shrinkWrap;
-  final bool showSyncButton;
-
-  @override
-  Widget build(BuildContext context) {
-    final localUrl = controller.sync.localBaseUrl ?? 'starting';
-    final trusted = controller.store.trustedDevices;
-    final discovered = controller.sync.discoveredPeers;
-    final children = [
-      _SyncSection(
-        title: '本机状态',
-        icon: Icons.dns_outlined,
-        children: [
-          _InfoRow(label: '设备', value: controller.store.device.name),
-          _InfoRow(
-            label: 'ID',
-            value: controller.store.device.deviceId.substring(0, 8),
-          ),
-          _InfoRow(label: '地址', value: localUrl),
-          const SizedBox(height: 8),
-          _StatusPill(text: controller.sync.status),
-          if (showSyncButton) ...[
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilledButton.icon(
-                onPressed: controller.sync.syncAllTrustedDevices,
-                icon: const Icon(Icons.sync),
-                label: const Text('同步所有已配对设备'),
-              ),
-            ),
-          ],
-        ],
-      ),
-      const SizedBox(height: 16),
-      _SyncSection(
-        title: '已配对设备',
-        icon: Icons.verified_outlined,
-        children: [
-          if (trusted.isEmpty)
-            const _SectionEmptyText('还没有配对设备')
-          else
-            for (final device in trusted)
-              _DeviceTile(
-                icon: Icons.devices,
-                title: device.name,
-                subtitle: device.baseUrl,
-                trailing: IconButton(
-                  tooltip: '同步',
-                  onPressed: () =>
-                      controller.sync.syncWithTrustedDevice(device),
-                  icon: const Icon(Icons.sync),
-                ),
-              ),
-        ],
-      ),
-      const SizedBox(height: 16),
-      _SyncSection(
-        title: '局域网发现',
-        icon: Icons.wifi_tethering,
-        children: [
-          if (discovered.isEmpty)
-            const _SectionEmptyText('未发现其他 MyTodo 设备')
-          else
-            for (final peer in discovered)
-              _DeviceTile(
-                icon: peer.trusted ? Icons.verified : Icons.devices,
-                title: peer.name,
-                subtitle: peer.baseUrl,
-                trailing: _PeerBadge(trusted: peer.trusted),
-              ),
-        ],
-      ),
-    ];
-    return ListView(
-      shrinkWrap: shrinkWrap,
-      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      padding: EdgeInsets.zero,
-      children: children,
     );
   }
 }
@@ -2694,71 +2385,6 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-class _DeviceTile extends StatelessWidget {
-  const _DeviceTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon),
-      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: trailing,
-    );
-  }
-}
-
-class _PeerBadge extends StatelessWidget {
-  const _PeerBadge({required this.trusted});
-
-  final bool trusted;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = trusted ? const Color(0xFF2E7D32) : scheme.onSurfaceVariant;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        trusted ? '已配对' : '未配对',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
-      ),
-    );
-  }
-}
-
-class _SectionEmptyText extends StatelessWidget {
-  const _SectionEmptyText(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Text(
-        text,
-        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-      ),
-    );
-  }
-}
-
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.label, required this.value});
 
@@ -2781,128 +2407,6 @@ class _InfoRow extends StatelessWidget {
           ),
           Expanded(child: SelectableText(value)),
         ],
-      ),
-    );
-  }
-}
-
-class PairScannerPage extends StatefulWidget {
-  const PairScannerPage({super.key, required this.onManualPair});
-
-  final Future<void> Function() onManualPair;
-
-  @override
-  State<PairScannerPage> createState() => _PairScannerPageState();
-}
-
-class _PairScannerPageState extends State<PairScannerPage> {
-  late final MobileScannerController _scannerController =
-      MobileScannerController();
-  bool _handled = false;
-
-  @override
-  void dispose() {
-    _scannerController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('扫码配对'),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await widget.onManualPair();
-            },
-            child: const Text('手动'),
-          ),
-        ],
-      ),
-      body: MobileScanner(
-        controller: _scannerController,
-        errorBuilder: _buildScannerError,
-        onDetect: (capture) {
-          if (_handled) {
-            return;
-          }
-          final code = capture.barcodes.firstOrNull?.rawValue;
-          if (code == null) {
-            return;
-          }
-          _handled = true;
-          Navigator.of(context).pop(code);
-        },
-      ),
-    );
-  }
-
-  Widget _buildScannerError(
-    BuildContext context,
-    MobileScannerException error,
-  ) {
-    final message = switch (error.errorCode) {
-      MobileScannerErrorCode.permissionDenied => '没有相机权限，无法扫码配对。',
-      MobileScannerErrorCode.unsupported => '当前设备不支持扫码。',
-      _ => '相机启动失败，请重试或使用手动配对。',
-    };
-    final detail = error.errorDetails?.message;
-
-    return Container(
-      color: Colors.black,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.qr_code_scanner, color: Colors.white, size: 44),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (detail != null && detail.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(
-                detail,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70),
-              ),
-            ],
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              alignment: WrapAlignment.center,
-              children: [
-                FilledButton.icon(
-                  onPressed: () {
-                    _scannerController.start();
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('重试'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    await widget.onManualPair();
-                  },
-                  icon: const Icon(Icons.edit),
-                  label: const Text('手动配对'),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -8,11 +8,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Future<TodoStore> _freshStore(String deviceId) {
   return TodoStore.openInMemoryForTesting(
-    device: LocalDevice(
-      deviceId: deviceId,
-      name: deviceId,
-      token: 'token-$deviceId',
-    ),
+    device: LocalDevice(deviceId: deviceId, name: deviceId),
   );
 }
 
@@ -32,18 +28,10 @@ int _endOfTodayMs() {
 void main() {
   test('event log can be applied to another local store', () async {
     final first = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
     final second = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-b',
-        name: 'Device B',
-        token: 'token-b',
-      ),
+      device: const LocalDevice(deviceId: 'device-b', name: 'Device B'),
     );
 
     await first.createTodo('Buy milk');
@@ -58,18 +46,10 @@ void main() {
 
   test('event log syncs custom lists and recurring templates', () async {
     final first = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
     final second = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-b',
-        name: 'Device B',
-        token: 'token-b',
-      ),
+      device: const LocalDevice(deviceId: 'device-b', name: 'Device B'),
     );
 
     final life = await first.createTodoList('Life');
@@ -87,11 +67,7 @@ void main() {
 
   test('newer remote event wins for the same todo', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     const older = TodoEvent(
@@ -135,11 +111,7 @@ void main() {
 
   test('search includes deleted todo history', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     await store.createTodo('Archive invoice');
@@ -185,11 +157,7 @@ void main() {
 
   test('todo can store due date and reminder time', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     await store.createTodo('Plan launch', dueAt: 2000, reminderAt: 1500);
@@ -211,11 +179,7 @@ void main() {
 
   test('deleted todo can be restored', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     await store.createTodo('Restore me');
@@ -233,11 +197,7 @@ void main() {
 
   test('store seeds system lists and filters todos by list', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     expect(store.lists.map((list) => list.id), contains(TodoList.inboxId));
@@ -255,11 +215,7 @@ void main() {
 
   test('daily recurring template generates at most one todo per day', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     await store.createRecurringTemplate(
@@ -281,11 +237,7 @@ void main() {
 
   test('deleting custom list moves todos and templates into inbox', () async {
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     final life = await store.createTodoList('Life');
@@ -347,15 +299,6 @@ CREATE TABLE events (
 )
 ''');
     await db.execute('''
-CREATE TABLE trusted_devices (
-  device_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  base_url TEXT NOT NULL,
-  token TEXT NOT NULL,
-  last_seen_at INTEGER NOT NULL
-)
-''');
-    await db.execute('''
 CREATE TABLE todo_lists (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -370,11 +313,7 @@ CREATE TABLE todo_lists (
 
     final store = await TodoStore.openPathForTesting(
       dbPath: dbPath,
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
     expect(store.lists.map((list) => list.id), contains(TodoList.inboxId));

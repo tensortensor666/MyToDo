@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-MyTodo is a local-first Flutter TODO app for Windows and Android. It stores data on the device, syncs trusted devices over the same LAN, and can optionally sync through your own Supabase project.
+MyTodo is a local-first Flutter TODO app for Windows and Android. It stores data on the device and can optionally sync through your own Supabase project.
 
 ## Screenshots
 
@@ -16,9 +16,9 @@ MyTodo is a local-first Flutter TODO app for Windows and Android. It stores data
 - Track created time, due time, reminder time, and overdue state.
 - Filter the main list by current, overdue, and completed tasks.
 - Search current, completed, and deleted task history from the app bar.
-- Pair devices with QR/manual pairing and sync over LAN.
 - Optional Supabase remote sync with user-provided project URL and publishable key.
-- Pull-to-refresh on mobile and a top-bar sync button for desktop.
+- Automatic remote sync after local changes when Supabase sync is configured.
+- Pull-to-refresh on mobile and a top-bar remote sync button for desktop.
 - Windows system tray support and Windows installer packaging.
 - In-app update checking with GitHub downloads and domestic mirror options.
 - Export a JSON backup.

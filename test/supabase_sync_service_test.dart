@@ -14,11 +14,7 @@ void main() {
     () async {
       SharedPreferences.setMockInitialValues({});
       final store = await TodoStore.openInMemoryForTesting(
-        device: const LocalDevice(
-          deviceId: 'device-a',
-          name: 'Device A',
-          token: 'token-a',
-        ),
+        device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
       );
       await store.createTodo('Local task');
 
@@ -113,11 +109,7 @@ void main() {
   test('rejects secret keys in client configuration', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
     final service = SupabaseSyncService(store);
     addTearDown(service.close);
@@ -138,11 +130,7 @@ void main() {
   test('persists remote sync configuration across service instances', () async {
     SharedPreferences.setMockInitialValues({});
     final store = await TodoStore.openInMemoryForTesting(
-      device: const LocalDevice(
-        deviceId: 'device-a',
-        name: 'Device A',
-        token: 'token-a',
-      ),
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
     final first = SupabaseSyncService(store);
     addTearDown(first.close);
@@ -169,6 +157,66 @@ void main() {
     expect(second.config.tableName, 'mytodo_events');
     expect(second.config.syncSpace, 'phone');
   });
+
+  test(
+    'automatically pushes local changes when remote sync is configured',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = await TodoStore.openInMemoryForTesting(
+        device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
+      );
+      final pushed = Completer<List<Map<String, Object?>>>();
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      late final StreamSubscription<HttpRequest> subscription;
+      addTearDown(() async {
+        await subscription.cancel();
+        await server.close(force: true);
+      });
+
+      subscription = server.listen((request) async {
+        request.response.headers.contentType = ContentType.json;
+        if (request.method == 'GET') {
+          request.response.write('[]');
+          await request.response.close();
+          return;
+        }
+        if (request.method == 'POST') {
+          final text = await utf8.decoder.bind(request).join();
+          final rows = (jsonDecode(text) as List)
+              .map((row) => Map<String, Object?>.from(row as Map))
+              .toList(growable: false);
+          if (!pushed.isCompleted) {
+            pushed.complete(rows);
+          }
+          request.response.statusCode = HttpStatus.created;
+          request.response.write('[]');
+          await request.response.close();
+          return;
+        }
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+      });
+
+      final service = SupabaseSyncService(store);
+      addTearDown(service.close);
+      await service.saveConfig(
+        SupabaseSyncConfig(
+          enabled: true,
+          autoSync: true,
+          restUrl: 'http://127.0.0.1:${server.port}/rest/v1',
+          publishableKey: 'publishable',
+          tableName: 'mytodo_events',
+          syncSpace: 'auto-space',
+        ),
+      );
+
+      await store.createTodo('Auto pushed task');
+
+      final rows = await pushed.future.timeout(const Duration(seconds: 5));
+      expect(rows, isNotEmpty);
+      expect(rows.first['sync_space'], 'auto-space');
+    },
+  );
 
   test('default configuration contains no project URL or key', () {
     final config = SupabaseSyncConfig.defaults();

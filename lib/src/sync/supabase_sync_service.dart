@@ -84,7 +84,7 @@ class SupabaseSyncService extends ChangeNotifier {
   static const _tableNameKey = 'supabaseSync.tableName';
   static const _syncSpaceKey = 'supabaseSync.syncSpace';
   static const _requestTimeout = Duration(seconds: 15);
-  static const _autoSyncDelay = Duration(seconds: 6);
+  static const _autoSyncDelay = Duration.zero;
   static const _periodicAutoSyncInterval = Duration(minutes: 5);
 
   final TodoStore store;
@@ -95,6 +95,7 @@ class SupabaseSyncService extends ChangeNotifier {
   bool _busy = false;
   bool _closed = false;
   bool _ignoreStoreChanges = false;
+  bool _autoSyncPending = false;
   Timer? _autoSyncDebounce;
   Timer? _periodicAutoSync;
 
@@ -111,8 +112,7 @@ class SupabaseSyncService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _config = SupabaseSyncConfig(
       enabled: prefs.getBool(_enabledKey) ?? false,
-      autoSync:
-          prefs.getBool(_autoSyncKey) ?? SupabaseSyncConfig.defaultAutoSync,
+      autoSync: SupabaseSyncConfig.defaultAutoSync,
       restUrl:
           prefs.getString(_restUrlKey) ?? SupabaseSyncConfig.defaultRestUrl,
       publishableKey:
@@ -147,7 +147,7 @@ class SupabaseSyncService extends ChangeNotifier {
           : 'Supabase remote sync disabled',
     );
     _configureAutoSync();
-    if (normalized.canSync && normalized.autoSync) {
+    if (normalized.canSync) {
       _scheduleAutoSync();
     }
   }
@@ -181,7 +181,11 @@ class SupabaseSyncService extends ChangeNotifier {
   }
 
   void _onStoreChanged() {
-    if (_ignoreStoreChanges || _busy || !_config.canSync || !_config.autoSync) {
+    if (_ignoreStoreChanges || !_config.canSync) {
+      return;
+    }
+    if (_busy) {
+      _autoSyncPending = true;
       return;
     }
     _scheduleAutoSync();
@@ -192,7 +196,7 @@ class SupabaseSyncService extends ChangeNotifier {
     _periodicAutoSync?.cancel();
     _autoSyncDebounce = null;
     _periodicAutoSync = null;
-    if (!_config.canSync || !_config.autoSync) {
+    if (!_config.canSync) {
       return;
     }
     _periodicAutoSync = Timer.periodic(_periodicAutoSyncInterval, (_) {
@@ -201,9 +205,10 @@ class SupabaseSyncService extends ChangeNotifier {
   }
 
   void _scheduleAutoSync() {
-    if (_closed || !_config.canSync || !_config.autoSync) {
+    if (_closed || !_config.canSync) {
       return;
     }
+    _autoSyncPending = false;
     _autoSyncDebounce?.cancel();
     _autoSyncDebounce = Timer(_autoSyncDelay, () {
       unawaited(_autoSyncNow());
@@ -211,7 +216,10 @@ class SupabaseSyncService extends ChangeNotifier {
   }
 
   Future<void> _autoSyncNow() async {
-    if (_closed || _busy || !_config.canSync || !_config.autoSync) {
+    if (_closed || _busy || !_config.canSync) {
+      if (_busy) {
+        _autoSyncPending = true;
+      }
       return;
     }
     try {
@@ -287,6 +295,7 @@ class SupabaseSyncService extends ChangeNotifier {
     final restUrl = config.restUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final tableName = config.tableName.trim();
     return config.copyWith(
+      autoSync: SupabaseSyncConfig.defaultAutoSync,
       restUrl: restUrl,
       publishableKey: config.publishableKey.trim(),
       tableName: tableName,
@@ -374,6 +383,9 @@ class SupabaseSyncService extends ChangeNotifier {
     } finally {
       _ignoreStoreChanges = false;
       _busy = false;
+      if (_autoSyncPending && !_closed && _config.canSync) {
+        _scheduleAutoSync();
+      }
       notifyListeners();
     }
   }

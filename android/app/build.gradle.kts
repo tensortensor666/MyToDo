@@ -55,9 +55,6 @@ android {
 
     buildTypes {
         release {
-            // R8 minification currently breaks ML Kit barcode scanning on some
-            // Android release builds. Keep Java/Kotlin dependencies intact so
-            // QR pairing remains reliable.
             isMinifyEnabled = false
             isShrinkResources = false
 

@@ -23,13 +23,11 @@ class TodoStore extends ChangeNotifier {
   List<TodoItem> _todoHistory = const [];
   List<TodoList> _lists = const [];
   List<RecurringTemplate> _recurringTemplates = const [];
-  List<TrustedDevice> _trustedDevices = const [];
 
   List<TodoItem> get todos => _todos;
   List<TodoItem> get todoHistory => _todoHistory;
   List<TodoList> get lists => _lists;
   List<RecurringTemplate> get recurringTemplates => _recurringTemplates;
-  List<TrustedDevice> get trustedDevices => _trustedDevices;
 
   static Future<TodoStore> open() async {
     if (!kIsWeb &&
@@ -43,10 +41,8 @@ class TodoStore extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     final deviceId = prefs.getString('deviceId') ?? _uuid.v4();
-    final token = prefs.getString('pairingToken') ?? _uuid.v4();
     final name = prefs.getString('deviceName') ?? _defaultDeviceName(deviceId);
     await prefs.setString('deviceId', deviceId);
-    await prefs.setString('pairingToken', token);
     await prefs.setString('deviceName', name);
 
     final supportDir = await getApplicationSupportDirectory();
@@ -59,10 +55,7 @@ class TodoStore extends ChangeNotifier {
     );
     await _ensureSchema(db);
 
-    final store = TodoStore._(
-      LocalDevice(deviceId: deviceId, name: name, token: token),
-      db,
-    );
+    final store = TodoStore._(LocalDevice(deviceId: deviceId, name: name), db);
     await store.reload();
     await store.ensureDailyRecurringTodos();
     return store;
@@ -157,15 +150,6 @@ CREATE TABLE IF NOT EXISTS events (
   type TEXT NOT NULL,
   todo_id TEXT NOT NULL,
   payload_json TEXT NOT NULL
-)
-''');
-    await db.execute('''
-CREATE TABLE IF NOT EXISTS trusted_devices (
-  device_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  base_url TEXT NOT NULL,
-  token TEXT NOT NULL,
-  last_seen_at INTEGER NOT NULL
 )
 ''');
     await db.execute('''
@@ -319,19 +303,12 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       where: 'deleted = 0',
       orderBy: 'completed ASC, sort_order ASC, created_at ASC, updated_at DESC',
     );
-    final trustedRows = await _db.query(
-      'trusted_devices',
-      orderBy: 'last_seen_at DESC',
-    );
     _lists = listRows.map(TodoList.fromDb).toList(growable: false);
     _recurringTemplates = templateRows
         .map(RecurringTemplate.fromDb)
         .toList(growable: false);
     _todoHistory = historyRows.map(TodoItem.fromDb).toList(growable: false);
     _todos = rows.map(TodoItem.fromDb).toList(growable: false);
-    _trustedDevices = trustedRows
-        .map(TrustedDevice.fromDb)
-        .toList(growable: false);
     notifyListeners();
   }
 
@@ -943,24 +920,6 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     );
   }
 
-  Future<void> upsertTrustedDevice(TrustedDevice device) async {
-    await _db.insert(
-      'trusted_devices',
-      device.toDb(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    await reload();
-  }
-
-  TrustedDevice? trustedDeviceById(String deviceId) {
-    for (final trustedDevice in _trustedDevices) {
-      if (trustedDevice.deviceId == deviceId) {
-        return trustedDevice;
-      }
-    }
-    return null;
-  }
-
   Future<String> exportBackup() async {
     final supportDir = await getApplicationSupportDirectory();
     final now = DateTime.now();
@@ -976,7 +935,6 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
           .map((item) => item.toJson())
           .toList(),
       'todos': _todoHistory.map((todo) => todo.toJson()).toList(),
-      'trustedDevices': _trustedDevices.map((item) => item.toDb()).toList(),
       'events': (await allEvents()).map((event) => event.toJson()).toList(),
     };
     await file.writeAsString(

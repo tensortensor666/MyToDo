@@ -423,49 +423,8 @@ class TodoEvent {
 }
 
 class LocalDevice {
-  const LocalDevice({
-    required this.deviceId,
-    required this.name,
-    required this.token,
-  });
+  const LocalDevice({required this.deviceId, required this.name});
 
   final String deviceId;
   final String name;
-  final String token;
-}
-
-class TrustedDevice {
-  const TrustedDevice({
-    required this.deviceId,
-    required this.name,
-    required this.baseUrl,
-    required this.token,
-    required this.lastSeenAt,
-  });
-
-  final String deviceId;
-  final String name;
-  final String baseUrl;
-  final String token;
-  final int lastSeenAt;
-
-  Map<String, Object?> toDb() {
-    return {
-      'device_id': deviceId,
-      'name': name,
-      'base_url': baseUrl,
-      'token': token,
-      'last_seen_at': lastSeenAt,
-    };
-  }
-
-  factory TrustedDevice.fromDb(Map<String, Object?> row) {
-    return TrustedDevice(
-      deviceId: row['device_id'] as String,
-      name: row['name'] as String,
-      baseUrl: row['base_url'] as String,
-      token: row['token'] as String,
-      lastSeenAt: row['last_seen_at'] as int,
-    );
-  }
 }
