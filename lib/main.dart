@@ -267,8 +267,13 @@ class _TodoHomeState extends State<TodoHome> {
       controller: widget.controller,
       title: '添加任务',
       initialListId: _targetListIdForNewTodo(),
+      initialDueAt: _initialDueAtForNewTodo(),
       initialImportant: _newTodoImportant,
     );
+  }
+
+  int? _initialDueAtForNewTodo() {
+    return defaultDueAtForNewTodoView(_selectedListId, DateTime.now());
   }
 
   Future<void> _showAddListDialog() async {
@@ -384,7 +389,6 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
           ),
         ),
         items: [
-          fluent.PaneItemHeader(header: const Text('清单')),
           for (final entry in entries)
             fluent.PaneItem(
               icon: Icon(entry.icon, color: entry.accent),
@@ -1189,10 +1193,11 @@ Future<void> _showTodoEditorDialog(
   required String title,
   TodoItem? todo,
   String initialListId = TodoList.inboxId,
+  int? initialDueAt,
   bool initialImportant = false,
 }) async {
   final titleController = TextEditingController(text: todo?.title ?? '');
-  var dueAt = todo?.dueAt;
+  var dueAt = todo?.dueAt ?? initialDueAt;
   var reminderAt = todo?.reminderAt;
   _TodoEditorResult? result;
 

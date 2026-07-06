@@ -110,3 +110,18 @@ String subtitleForView(String id) {
       return '';
   }
 }
+
+int? defaultDueAtForNewTodoView(String selectedListId, DateTime now) {
+  if (selectedListId != TodoList.viewMyDayId) {
+    return null;
+  }
+  return DateTime(
+    now.year,
+    now.month,
+    now.day,
+    23,
+    59,
+    59,
+    999,
+  ).millisecondsSinceEpoch;
+}
