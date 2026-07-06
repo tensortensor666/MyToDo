@@ -112,7 +112,8 @@ String subtitleForView(String id) {
 }
 
 int? defaultDueAtForNewTodoView(String selectedListId, DateTime now) {
-  if (selectedListId != TodoList.viewMyDayId) {
+  if (selectedListId != TodoList.viewMyDayId &&
+      selectedListId != TodoList.viewPlannedId) {
     return null;
   }
   return DateTime(
@@ -124,4 +125,17 @@ int? defaultDueAtForNewTodoView(String selectedListId, DateTime now) {
     59,
     999,
   ).millisecondsSinceEpoch;
+}
+
+String targetListIdForNewTodoView(String selectedListId) {
+  return switch (selectedListId) {
+    TodoList.viewMyDayId => TodoList.inboxId,
+    TodoList.viewImportantId => TodoList.inboxId,
+    TodoList.viewPlannedId => TodoList.inboxId,
+    _ => selectedListId,
+  };
+}
+
+bool defaultImportantForNewTodoView(String selectedListId) {
+  return selectedListId == TodoList.viewImportantId;
 }

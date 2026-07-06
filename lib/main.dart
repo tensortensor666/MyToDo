@@ -231,15 +231,10 @@ class _TodoHomeState extends State<TodoHome> {
   }
 
   String _targetListIdForNewTodo() {
-    return switch (_selectedListId) {
-      TodoList.viewMyDayId => TodoList.inboxId,
-      TodoList.viewImportantId => TodoList.inboxId,
-      TodoList.viewPlannedId => TodoList.inboxId,
-      _ => _selectedListId,
-    };
+    return targetListIdForNewTodoView(_selectedListId);
   }
 
-  bool get _newTodoImportant => _selectedListId == TodoList.viewImportantId;
+  bool get _newTodoImportant => defaultImportantForNewTodoView(_selectedListId);
 
   Future<void> _openHistorySearch() async {
     await showSearch<void>(
