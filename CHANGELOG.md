@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3 - 2026-07-06
+
+- Fixed the Windows sidebar toggle so it switches between expanded and compact navigation modes.
+
 ## 1.4.2 - 2026-07-06
 
 - Enabled Android backup rules for the remote sync configuration so Supabase settings can be restored after reinstall when Android backup is available.

@@ -329,7 +329,7 @@ class _TodoHomeState extends State<TodoHome> {
   }
 }
 
-class _FluentTodoNavigationLayout extends StatelessWidget {
+class _FluentTodoNavigationLayout extends StatefulWidget {
   const _FluentTodoNavigationLayout({
     required this.entries,
     required this.selectedEntry,
@@ -361,31 +361,52 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
   final Future<void> Function() onRefresh;
 
   @override
+  State<_FluentTodoNavigationLayout> createState() =>
+      _FluentTodoNavigationLayoutState();
+}
+
+class _FluentTodoNavigationLayoutState
+    extends State<_FluentTodoNavigationLayout> {
+  bool _desktopPaneExpanded = true;
+
+  @override
   Widget build(BuildContext context) {
-    final selectedIndex = entries.indexWhere(
-      (entry) => entry.id == selectedEntry.id,
+    final selectedIndex = widget.entries.indexWhere(
+      (entry) => entry.id == widget.selectedEntry.id,
     );
-    if (compact) {
+    if (widget.compact) {
       return _CompactTodoDrawerLayout(
-        entries: entries,
-        selectedEntry: selectedEntry,
-        controller: controller,
-        syncing: syncing,
-        onSelected: onSelected,
-        onAddTodo: onAddTodo,
-        onAddList: onAddList,
-        onSearch: onSearch,
-        onUpdate: onUpdate,
-        onSync: onSync,
-        onSyncPage: onSyncPage,
-        onRefresh: onRefresh,
+        entries: widget.entries,
+        selectedEntry: widget.selectedEntry,
+        controller: widget.controller,
+        syncing: widget.syncing,
+        onSelected: widget.onSelected,
+        onAddTodo: widget.onAddTodo,
+        onAddList: widget.onAddList,
+        onSearch: widget.onSearch,
+        onUpdate: widget.onUpdate,
+        onSync: widget.onSync,
+        onSyncPage: widget.onSyncPage,
+        onRefresh: widget.onRefresh,
       );
     }
+    final paneDisplayMode = _desktopPaneExpanded
+        ? fluent.PaneDisplayMode.expanded
+        : fluent.PaneDisplayMode.compact;
     return fluent.NavigationView(
       contentShape: const RoundedRectangleBorder(),
       pane: fluent.NavigationPane(
         selected: selectedIndex < 0 ? 0 : selectedIndex,
-        displayMode: fluent.PaneDisplayMode.expanded,
+        displayMode: paneDisplayMode,
+        toggleButton: Tooltip(
+          message: _desktopPaneExpanded ? '收起侧边栏' : '展开侧边栏',
+          child: IconButton(
+            icon: Icon(_desktopPaneExpanded ? Icons.menu_open : Icons.menu),
+            onPressed: () {
+              setState(() => _desktopPaneExpanded = !_desktopPaneExpanded);
+            },
+          ),
+        ),
         size: fluent.NavigationPaneSize(
           compactWidth: 56,
           openWidth: 320,
@@ -401,22 +422,24 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
           ),
         ),
         items: [
-          for (final entry in entries)
+          for (final entry in widget.entries)
             fluent.PaneItem(
               icon: Icon(entry.icon, color: entry.accent),
               title: Text(entry.name),
-              infoBadge: _countBadge(controller.store.activeCountFor(entry.id)),
+              infoBadge: _countBadge(
+                widget.controller.store.activeCountFor(entry.id),
+              ),
               body: _FluentMainContent(
                 entry: entry,
-                controller: controller,
+                controller: widget.controller,
                 compact: false,
-                syncing: syncing,
-                onAddTodo: onAddTodo,
-                onSearch: onSearch,
-                onUpdate: onUpdate,
-                onSync: onSync,
-                onSyncPage: onSyncPage,
-                onRefresh: onRefresh,
+                syncing: widget.syncing,
+                onAddTodo: widget.onAddTodo,
+                onSearch: widget.onSearch,
+                onUpdate: widget.onUpdate,
+                onSync: widget.onSync,
+                onSyncPage: widget.onSyncPage,
+                onRefresh: widget.onRefresh,
               ),
             ),
         ],
@@ -424,44 +447,44 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
           fluent.PaneItemAction(
             icon: const Icon(Icons.add),
             title: const Text('添加任务'),
-            onTap: onAddTodo,
+            onTap: widget.onAddTodo,
           ),
           fluent.PaneItemAction(
             icon: const Icon(Icons.add_circle_outline),
             title: const Text('添加清单'),
-            onTap: onAddList,
+            onTap: widget.onAddList,
           ),
           fluent.PaneItemSeparator(),
           fluent.PaneItemAction(
             icon: const Icon(Icons.search),
             title: const Text('搜索'),
-            onTap: onSearch,
+            onTap: widget.onSearch,
           ),
           fluent.PaneItemAction(
             icon: const Icon(Icons.system_update),
             title: const Text('检查更新'),
-            onTap: onUpdate,
+            onTap: widget.onUpdate,
           ),
           fluent.PaneItemAction(
-            icon: syncing
+            icon: widget.syncing
                 ? const SizedBox.square(
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.sync),
-            title: Text(syncing ? '同步中' : '立即同步'),
-            enabled: onSync != null,
-            onTap: onSync ?? () {},
+            title: Text(widget.syncing ? '同步中' : '立即同步'),
+            enabled: widget.onSync != null,
+            onTap: widget.onSync ?? () {},
           ),
           fluent.PaneItemAction(
             icon: const Icon(Icons.devices),
             title: const Text('同步和设备'),
-            onTap: onSyncPage,
+            onTap: widget.onSyncPage,
           ),
         ],
         onChanged: (index) {
-          if (index >= 0 && index < entries.length) {
-            onSelected(entries[index].id);
+          if (index >= 0 && index < widget.entries.length) {
+            widget.onSelected(widget.entries[index].id);
           }
         },
       ),
