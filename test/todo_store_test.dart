@@ -18,8 +18,15 @@ Future<TodoStore> _freshStore(String deviceId) {
 
 int _endOfTodayMs() {
   final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day, 23, 59, 59, 999)
-      .millisecondsSinceEpoch;
+  return DateTime(
+    now.year,
+    now.month,
+    now.day,
+    23,
+    59,
+    59,
+    999,
+  ).millisecondsSinceEpoch;
 }
 
 void main() {
@@ -226,7 +233,10 @@ void main() {
       ),
     );
 
-    await store.createRecurringTemplate('Brush teeth', listId: TodoList.dailyId);
+    await store.createRecurringTemplate(
+      'Brush teeth',
+      listId: TodoList.dailyId,
+    );
     final firstCount = store.visibleTodosForList(TodoList.dailyId).length;
 
     await store.ensureDailyRecurringTodos();
@@ -234,7 +244,10 @@ void main() {
 
     expect(firstCount, 1);
     expect(secondCount, 1);
-    expect(store.visibleTodosForList(TodoList.dailyId).single.sourceType, TodoSource.recurring);
+    expect(
+      store.visibleTodosForList(TodoList.dailyId).single.sourceType,
+      TodoSource.recurring,
+    );
   });
 
   test('deleting custom list moves todos and templates into inbox', () async {
@@ -253,9 +266,14 @@ void main() {
     await store.deleteTodoList(life);
 
     expect(store.listById(life.id), isNull);
-    expect(store.todos.every((todo) => todo.listId == TodoList.inboxId), isTrue);
     expect(
-      store.recurringTemplates.every((template) => template.listId == TodoList.inboxId),
+      store.todos.every((todo) => todo.listId == TodoList.inboxId),
+      isTrue,
+    );
+    expect(
+      store.recurringTemplates.every(
+        (template) => template.listId == TodoList.inboxId,
+      ),
       isTrue,
     );
   });
@@ -332,7 +350,10 @@ CREATE TABLE todo_lists (
 
     expect(store.lists.map((list) => list.id), contains(TodoList.inboxId));
     expect(store.lists.map((list) => list.id), contains(TodoList.dailyId));
-    expect(() => store.createRecurringTemplate('Brush teeth', listId: TodoList.dailyId), returnsNormally);
+    await expectLater(
+      store.createRecurringTemplate('Brush teeth', listId: TodoList.dailyId),
+      completes,
+    );
   });
 
   test('important flag persists and syncs between stores', () async {
@@ -364,26 +385,38 @@ CREATE TABLE todo_lists (
     expect(store.activeCountFor(TodoList.viewImportantId), 1);
   });
 
-  test('planned view shows only tasks with a due date sorted ascending', () async {
-    final store = await _freshStore('device-a');
-    await store.createTodo('No due');
-    await store.createTodo('Later', dueAt: 5000);
-    await store.createTodo('Sooner', dueAt: 3000);
+  test(
+    'planned view shows only tasks with a due date sorted ascending',
+    () async {
+      final store = await _freshStore('device-a');
+      await store.createTodo('No due');
+      await store.createTodo('Later', dueAt: 5000);
+      await store.createTodo('Sooner', dueAt: 3000);
 
-    final planned = store.visibleTodosForList(TodoList.viewPlannedId);
-    expect(planned.map((todo) => todo.title), ['Sooner', 'Later']);
-  });
+      final planned = store.visibleTodosForList(TodoList.viewPlannedId);
+      expect(planned.map((todo) => todo.title), ['Sooner', 'Later']);
+    },
+  );
 
-  test('my day view shows tasks due today and recurring tasks for today', () async {
-    final store = await _freshStore('device-a');
-    await store.createRecurringTemplate('Daily chore', listId: TodoList.dailyId);
-    await store.createTodo('Due today', dueAt: _endOfTodayMs());
-    await store.createTodo('Due tomorrow', dueAt: _endOfTodayMs() + 86400000);
+  test(
+    'my day view shows tasks due today and recurring tasks for today',
+    () async {
+      final store = await _freshStore('device-a');
+      await store.createRecurringTemplate(
+        'Daily chore',
+        listId: TodoList.dailyId,
+      );
+      await store.createTodo('Due today', dueAt: _endOfTodayMs());
+      await store.createTodo('Due tomorrow', dueAt: _endOfTodayMs() + 86400000);
 
-    final myDay = store.visibleTodosForList(TodoList.viewMyDayId);
-    expect(myDay.map((todo) => todo.title), containsAll(['Daily chore', 'Due today']));
-    expect(myDay.any((todo) => todo.title == 'Due tomorrow'), isFalse);
-  });
+      final myDay = store.visibleTodosForList(TodoList.viewMyDayId);
+      expect(
+        myDay.map((todo) => todo.title),
+        containsAll(['Daily chore', 'Due today']),
+      );
+      expect(myDay.any((todo) => todo.title == 'Due tomorrow'), isFalse);
+    },
+  );
 
   test('list color persists and syncs between stores', () async {
     final first = await _freshStore('device-a');
