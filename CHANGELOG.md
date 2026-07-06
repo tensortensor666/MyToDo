@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1 - 2026-07-06
+
+- Fixed task row actions so the delete button and drag handle no longer overlap.
+
 ## 1.4.0 - 2026-07-06
 
 - Added drag-and-drop manual task ordering in the main task list.

@@ -1239,6 +1239,7 @@ class _TodoList extends StatelessWidget {
     final children = _buildListChildren(context);
     if (!historyMode && !shrinkWrap && onReorder != null) {
       return ReorderableListView(
+        buildDefaultDragHandles: false,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 96),
         onReorderItem: (oldIndex, newIndex) {
@@ -1259,14 +1260,17 @@ class _TodoList extends StatelessWidget {
 
   List<Widget> _buildListChildren(BuildContext context) {
     return [
-      for (final todo in todos)
+      for (var index = 0; index < todos.length; index++)
         Padding(
-          key: ValueKey(todo.id),
+          key: ValueKey(todos[index].id),
           padding: const EdgeInsets.only(bottom: 8),
           child: _TodoTile(
-            todo: todo,
+            todo: todos[index],
             controller: controller,
             historyMode: historyMode,
+            reorderIndex: !historyMode && !shrinkWrap && onReorder != null
+                ? index
+                : null,
           ),
         ),
     ];
@@ -1311,11 +1315,13 @@ class _TodoTile extends StatelessWidget {
     required this.todo,
     required this.controller,
     required this.historyMode,
+    this.reorderIndex,
   });
 
   final TodoItem todo;
   final AppController controller;
   final bool historyMode;
+  final int? reorderIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -1371,23 +1377,76 @@ class _TodoTile extends StatelessWidget {
               padding: const EdgeInsets.only(top: 8),
               child: _TodoMetadata(todo: todo, historyMode: historyMode),
             ),
-            trailing: todo.deleted
-                ? historyMode
-                      ? IconButton(
-                          tooltip: '恢复',
-                          onPressed: () => controller.store.restoreTodo(todo),
-                          icon: const Icon(Icons.restore),
-                        )
-                      : null
-                : IconButton(
-                    tooltip: '删除',
-                    onPressed: () => controller.store.deleteTodo(todo),
-                    icon: const Icon(Icons.delete_outline),
-                  ),
+            trailing: _TodoTileActions(
+              todo: todo,
+              historyMode: historyMode,
+              reorderIndex: reorderIndex,
+              onDelete: () => controller.store.deleteTodo(todo),
+              onRestore: () => controller.store.restoreTodo(todo),
+            ),
           ),
         ),
       ),
     );
+  }
+}
+
+class _TodoTileActions extends StatelessWidget {
+  const _TodoTileActions({
+    required this.todo,
+    required this.historyMode,
+    required this.onDelete,
+    required this.onRestore,
+    this.reorderIndex,
+  });
+
+  final TodoItem todo;
+  final bool historyMode;
+  final int? reorderIndex;
+  final VoidCallback onDelete;
+  final VoidCallback onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = <Widget>[];
+    final index = reorderIndex;
+    if (!todo.deleted && index != null) {
+      actions.add(
+        Tooltip(
+          message: '拖动排序',
+          child: ReorderableDragStartListener(
+            index: index,
+            child: const SizedBox.square(
+              dimension: 40,
+              child: Icon(Icons.drag_handle),
+            ),
+          ),
+        ),
+      );
+    }
+    if (todo.deleted) {
+      if (historyMode) {
+        actions.add(
+          IconButton(
+            tooltip: '恢复',
+            onPressed: onRestore,
+            icon: const Icon(Icons.restore),
+          ),
+        );
+      }
+    } else {
+      actions.add(
+        IconButton(
+          tooltip: '删除',
+          onPressed: onDelete,
+          icon: const Icon(Icons.delete_outline),
+        ),
+      );
+    }
+    if (actions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: actions);
   }
 }
 
