@@ -135,6 +135,41 @@ void main() {
     expect(service.syncNow(), throwsA(isA<FormatException>()));
   });
 
+  test('persists remote sync configuration across service instances', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await TodoStore.openInMemoryForTesting(
+      device: const LocalDevice(
+        deviceId: 'device-a',
+        name: 'Device A',
+        token: 'token-a',
+      ),
+    );
+    final first = SupabaseSyncService(store);
+    addTearDown(first.close);
+
+    await first.saveConfig(
+      const SupabaseSyncConfig(
+        enabled: true,
+        autoSync: true,
+        restUrl: 'https://example.supabase.co/rest/v1',
+        publishableKey: 'sb_publishable_local',
+        tableName: 'mytodo_events',
+        syncSpace: 'phone',
+      ),
+    );
+
+    final second = SupabaseSyncService(store);
+    addTearDown(second.close);
+    await second.load();
+
+    expect(second.config.enabled, isTrue);
+    expect(second.config.autoSync, isTrue);
+    expect(second.config.restUrl, 'https://example.supabase.co/rest/v1');
+    expect(second.config.publishableKey, 'sb_publishable_local');
+    expect(second.config.tableName, 'mytodo_events');
+    expect(second.config.syncSpace, 'phone');
+  });
+
   test('default configuration contains no project URL or key', () {
     final config = SupabaseSyncConfig.defaults();
 

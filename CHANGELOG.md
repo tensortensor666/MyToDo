@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2 - 2026-07-06
+
+- Enabled Android backup rules for the remote sync configuration so Supabase settings can be restored after reinstall when Android backup is available.
+- Added a regression test for persisted remote sync URL and publishable key settings.
+
 ## 1.4.1 - 2026-07-06
 
 - Fixed task row actions so the delete button and drag handle no longer overlap.
