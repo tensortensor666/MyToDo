@@ -191,6 +191,7 @@ class _TodoHomeState extends State<TodoHome> {
                             setState(() => _selectedListId = id);
                           },
                           onAddTodo: _showAddTodoDialog,
+                          onAddList: _showAddListDialog,
                           onSearch: _openHistorySearch,
                           onUpdate: _openUpdatePage,
                           onSync: _syncingFromHome
@@ -212,6 +213,7 @@ class _TodoHomeState extends State<TodoHome> {
                               setState(() => _selectedListId = id);
                             },
                             onAddTodo: _showAddTodoDialog,
+                            onAddList: _showAddListDialog,
                             onOpenSync: _openSyncPage,
                           ),
                           Expanded(
@@ -313,6 +315,16 @@ class _TodoHomeState extends State<TodoHome> {
     );
   }
 
+  Future<void> _showAddListDialog() async {
+    final list = await _showTodoListEditorDialog(
+      context,
+      controller: widget.controller,
+    );
+    if (list != null && mounted) {
+      setState(() => _selectedListId = list.id);
+    }
+  }
+
   Future<void> _openSyncPage() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -366,6 +378,7 @@ class _MobileTodoLayout extends StatelessWidget {
     required this.syncing,
     required this.onSelected,
     required this.onAddTodo,
+    required this.onAddList,
     required this.onSearch,
     required this.onUpdate,
     required this.onSync,
@@ -379,6 +392,7 @@ class _MobileTodoLayout extends StatelessWidget {
   final bool syncing;
   final ValueChanged<String> onSelected;
   final VoidCallback onAddTodo;
+  final VoidCallback onAddList;
   final VoidCallback onSearch;
   final VoidCallback onUpdate;
   final VoidCallback? onSync;
@@ -387,206 +401,43 @@ class _MobileTodoLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _MobileHeader(
-          syncing: syncing,
-          onSearch: onSearch,
-          onUpdate: onUpdate,
-          onSync: onSync,
-          onSyncPage: onSyncPage,
-        ),
-        _MobileNavStrip(
+        _TodoSidebar(
           entries: entries,
           selectedId: selectedEntry.id,
           controller: controller,
           onSelected: onSelected,
+          onAddTodo: onAddTodo,
+          onAddList: onAddList,
+          onOpenSync: onSyncPage,
+          compact: true,
         ),
         Expanded(
-          child: _TodoContentPage(
-            entry: selectedEntry,
-            controller: controller,
-            onAddTodo: onAddTodo,
-            onRefresh: onRefresh,
-            compact: true,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MobileHeader extends StatelessWidget {
-  const _MobileHeader({
-    required this.syncing,
-    required this.onSearch,
-    required this.onUpdate,
-    required this.onSync,
-    required this.onSyncPage,
-  });
-
-  final bool syncing;
-  final VoidCallback onSearch;
-  final VoidCallback onUpdate;
-  final VoidCallback? onSync;
-  final VoidCallback onSyncPage;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-      decoration: const BoxDecoration(
-        color: _sidebarBackground,
-        border: Border(bottom: BorderSide(color: Color(0xFFD4E4E1))),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'MyTodo',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: const Color(0xFF073F3B),
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0,
-                  ),
-                ),
-                Text(
-                  '本地优先，跨设备同步',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF406562),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          _TopIconButton(tooltip: '搜索历史', icon: Icons.search, onTap: onSearch),
-          _TopIconButton(
-            tooltip: '检查更新',
-            icon: Icons.system_update,
-            onTap: onUpdate,
-          ),
-          _TopIconButton(
-            tooltip: '立即同步',
-            icon: Icons.sync,
-            busy: syncing,
-            onTap: onSync,
-          ),
-          _TopIconButton(
-            tooltip: '同步和设备',
-            icon: Icons.devices,
-            onTap: onSyncPage,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MobileNavStrip extends StatelessWidget {
-  const _MobileNavStrip({
-    required this.entries,
-    required this.selectedId,
-    required this.controller,
-    required this.onSelected,
-  });
-
-  final List<TodoNavEntry> entries;
-  final String selectedId;
-  final AppController controller;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 88,
-      decoration: const BoxDecoration(
-        color: _sidebarBackground,
-        border: Border(bottom: BorderSide(color: Color(0xFFD4E4E1))),
-      ),
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        scrollDirection: Axis.horizontal,
-        itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final entry = entries[index];
-          final selected = entry.id == selectedId;
-          final count = controller.store.activeCountFor(entry.id);
-          return _MobileNavPill(
-            entry: entry,
-            count: count,
-            selected: selected,
-            onTap: () => onSelected(entry.id),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _MobileNavPill extends StatelessWidget {
-  const _MobileNavPill({
-    required this.entry,
-    required this.count,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final TodoNavEntry entry;
-  final int count;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? _appAccent.withValues(alpha: 0.16) : Colors.white,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: 138,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? _appAccent.withValues(alpha: 0.36)
-                  : const Color(0xFFD4E4E1),
-            ),
-          ),
-          child: Row(
+          child: Column(
             children: [
-              Icon(entry.icon, size: 20, color: entry.accent),
-              const SizedBox(width: 8),
+              _TopCommandBar(
+                syncing: syncing,
+                onSearch: onSearch,
+                onUpdate: onUpdate,
+                onSync: onSync,
+                onSyncPage: onSyncPage,
+                compact: true,
+              ),
               Expanded(
-                child: Text(
-                  entry.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: const Color(0xFF163F3B),
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: _TodoContentPage(
+                  entry: selectedEntry,
+                  controller: controller,
+                  onAddTodo: onAddTodo,
+                  onRefresh: onRefresh,
+                  compact: true,
                 ),
               ),
-              if (count > 0)
-                Text(
-                  count.toString(),
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: _appAccent,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -598,7 +449,9 @@ class _TodoSidebar extends StatelessWidget {
     required this.controller,
     required this.onSelected,
     required this.onAddTodo,
+    required this.onAddList,
     required this.onOpenSync,
+    this.compact = false,
   });
 
   final List<TodoNavEntry> entries;
@@ -606,13 +459,17 @@ class _TodoSidebar extends StatelessWidget {
   final AppController controller;
   final ValueChanged<String> onSelected;
   final VoidCallback onAddTodo;
+  final VoidCallback onAddList;
   final VoidCallback onOpenSync;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 336,
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      width: compact ? 126 : 336,
+      padding: compact
+          ? const EdgeInsets.fromLTRB(8, 12, 8, 10)
+          : const EdgeInsets.fromLTRB(16, 18, 16, 16),
       decoration: const BoxDecoration(
         color: _sidebarBackground,
         border: Border(right: BorderSide(color: Color(0xFFD4E4E1))),
@@ -621,49 +478,60 @@ class _TodoSidebar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
+            padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'MyTodo',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: const Color(0xFF073F3B),
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0,
-                  ),
+                  style:
+                      (compact
+                              ? Theme.of(context).textTheme.titleMedium
+                              : Theme.of(context).textTheme.headlineSmall)
+                          ?.copyWith(
+                            color: const Color(0xFF073F3B),
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0,
+                          ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '本地优先，跨设备同步',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF406562),
+                if (!compact) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '本地优先，跨设备同步',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF406562),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 18),
+          SizedBox(height: compact ? 12 : 18),
           FilledButton.icon(
             onPressed: onAddTodo,
             style: FilledButton.styleFrom(
               backgroundColor: _appAccent,
               foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
+              minimumSize: Size.fromHeight(compact ? 42 : 48),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(24),
               ),
             ),
             icon: const Icon(Icons.add),
-            label: const Text('添加任务'),
+            label: Text(compact ? '任务' : '添加任务'),
           ),
-          const SizedBox(height: 22),
+          SizedBox(height: compact ? 14 : 22),
           Text(
             '清单',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: const Color(0xFF103F3B),
-              fontWeight: FontWeight.w800,
-            ),
+            style:
+                (compact
+                        ? Theme.of(context).textTheme.titleSmall
+                        : Theme.of(context).textTheme.titleLarge)
+                    ?.copyWith(
+                      color: const Color(0xFF103F3B),
+                      fontWeight: FontWeight.w800,
+                    ),
           ),
           const SizedBox(height: 6),
           Expanded(
@@ -677,15 +545,30 @@ class _TodoSidebar extends StatelessWidget {
                   count: controller.store.activeCountFor(entry.id),
                   selected: entry.id == selectedId,
                   onTap: () => onSelected(entry.id),
+                  compact: compact,
                 );
               },
             ),
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
+            onPressed: onAddList,
+            icon: const Icon(Icons.add_circle_outline),
+            label: Text(compact ? '清单' : '添加清单'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: Size.fromHeight(compact ? 40 : 44),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 16),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
             onPressed: onOpenSync,
             icon: const Icon(Icons.devices),
-            label: const Text('同步和设备'),
+            label: Text(compact ? '同步' : '同步和设备'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: Size.fromHeight(compact ? 40 : 44),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 16),
+            ),
           ),
         ],
       ),
@@ -699,12 +582,14 @@ class _SidebarNavTile extends StatelessWidget {
     required this.count,
     required this.selected,
     required this.onTap,
+    this.compact = false,
   });
 
   final TodoNavEntry entry;
   final int count;
   final bool selected;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -718,21 +603,28 @@ class _SidebarNavTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 12,
+            vertical: compact ? 8 : 10,
+          ),
           child: Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: compact ? 28 : 40,
+                height: compact ? 28 : 40,
                 decoration: BoxDecoration(
                   color: selected
                       ? _appAccent.withValues(alpha: 0.22)
                       : Colors.black.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(entry.icon, size: 20, color: entry.accent),
+                child: Icon(
+                  entry.icon,
+                  size: compact ? 17 : 20,
+                  color: entry.accent,
+                ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: compact ? 8 : 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -744,16 +636,18 @@ class _SidebarNavTile extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: const Color(0xFF163F3B),
                         fontWeight: FontWeight.w700,
+                        fontSize: compact ? 12 : null,
                       ),
                     ),
-                    Text(
-                      entry.isVirtual ? subtitleForView(entry.id) : '全部任务',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF587370),
+                    if (!compact)
+                      Text(
+                        entry.isVirtual ? subtitleForView(entry.id) : '全部任务',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF587370),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -763,13 +657,14 @@ class _SidebarNavTile extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: _appAccent,
                     fontWeight: FontWeight.w800,
+                    fontSize: compact ? 12 : null,
                   ),
                 ),
               if (selected) ...[
-                const SizedBox(width: 10),
+                SizedBox(width: compact ? 6 : 10),
                 Container(
-                  width: 6,
-                  height: 32,
+                  width: compact ? 4 : 6,
+                  height: compact ? 24 : 32,
                   decoration: BoxDecoration(
                     color: _appAccent,
                     borderRadius: BorderRadius.circular(99),
@@ -791,6 +686,7 @@ class _TopCommandBar extends StatelessWidget {
     required this.onUpdate,
     required this.onSync,
     required this.onSyncPage,
+    this.compact = false,
   });
 
   final bool syncing;
@@ -798,12 +694,13 @@ class _TopCommandBar extends StatelessWidget {
   final VoidCallback onUpdate;
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: compact ? 56 : 64,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 20),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE1E9E7))),
@@ -1645,6 +1542,109 @@ Future<void> _showTodoEditorDialog(
   }
 }
 
+Future<TodoList?> _showTodoListEditorDialog(
+  BuildContext context, {
+  required AppController controller,
+}) async {
+  final nameController = TextEditingController();
+  final initialColor =
+      kListColorPalette[controller.store.lists.length %
+          kListColorPalette.length];
+  var selectedColor = initialColor;
+  _TodoListEditorResult? result;
+
+  try {
+    result = await showDialog<_TodoListEditorResult>(
+      context: context,
+      requestFocus: _shouldAutofocusEditor,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            Future<void> close([_TodoListEditorResult? result]) async {
+              FocusManager.instance.primaryFocus?.unfocus();
+              await Future<void>.delayed(const Duration(milliseconds: 80));
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop(result);
+              }
+            }
+
+            Future<void> save() async {
+              final trimmed = nameController.text.trim();
+              if (trimmed.isEmpty) {
+                return;
+              }
+              await close(
+                _TodoListEditorResult(
+                  name: trimmed,
+                  color: selectedColor.toARGB32(),
+                ),
+              );
+            }
+
+            return PopScope<_TodoListEditorResult>(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) {
+                  close();
+                }
+              },
+              child: AlertDialog(
+                title: const Text('添加清单'),
+                scrollable: true,
+                content: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: nameController,
+                        autofocus: _shouldAutofocusEditor,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: '清单名称',
+                          prefixIcon: Icon(Icons.list_alt),
+                        ),
+                        onSubmitted: (_) => save(),
+                      ),
+                      const SizedBox(height: 18),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          for (final color in kListColorPalette)
+                            _ListColorChoice(
+                              color: color,
+                              selected: color == selectedColor,
+                              onTap: () {
+                                setDialogState(() => selectedColor = color);
+                              },
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(onPressed: () => close(), child: const Text('取消')),
+                  FilledButton(onPressed: save, child: const Text('保存')),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  } finally {
+    nameController.dispose();
+  }
+
+  if (result == null) {
+    return null;
+  }
+  return controller.store.createTodoList(result.name, color: result.color);
+}
+
 bool get _shouldAutofocusEditor => !(Platform.isAndroid || Platform.isIOS);
 
 class _TodoEditorResult {
@@ -1657,6 +1657,53 @@ class _TodoEditorResult {
   final String title;
   final int? dueAt;
   final int? reminderAt;
+}
+
+class _TodoListEditorResult {
+  const _TodoListEditorResult({required this.name, required this.color});
+
+  final String name;
+  final int color;
+}
+
+class _ListColorChoice extends StatelessWidget {
+  const _ListColorChoice({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '清单颜色',
+      child: InkResponse(
+        onTap: onTap,
+        radius: 22,
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.onSurface
+                  : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: selected
+              ? const Icon(Icons.check, color: Colors.white, size: 18)
+              : null,
+        ),
+      ),
+    );
+  }
 }
 
 class _DateTimeField extends StatelessWidget {
