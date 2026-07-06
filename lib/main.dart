@@ -117,6 +117,7 @@ class TodoHome extends StatefulWidget {
 class _TodoHomeState extends State<TodoHome> {
   WindowsTrayController? _windowsTrayController;
   bool _syncingFromHome = false;
+  bool _mobileSidebarVisible = true;
   String _selectedListId = TodoList.inboxId;
 
   @override
@@ -187,8 +188,12 @@ class _TodoHomeState extends State<TodoHome> {
                           selectedEntry: selectedEntry,
                           controller: widget.controller,
                           syncing: _syncingFromHome,
+                          sidebarVisible: _mobileSidebarVisible,
                           onSelected: (id) {
                             setState(() => _selectedListId = id);
+                          },
+                          onSidebarVisibilityChanged: (visible) {
+                            setState(() => _mobileSidebarVisible = visible);
                           },
                           onAddTodo: _showAddTodoDialog,
                           onAddList: _showAddListDialog,
@@ -376,7 +381,9 @@ class _MobileTodoLayout extends StatelessWidget {
     required this.selectedEntry,
     required this.controller,
     required this.syncing,
+    required this.sidebarVisible,
     required this.onSelected,
+    required this.onSidebarVisibilityChanged,
     required this.onAddTodo,
     required this.onAddList,
     required this.onSearch,
@@ -390,7 +397,9 @@ class _MobileTodoLayout extends StatelessWidget {
   final TodoNavEntry selectedEntry;
   final AppController controller;
   final bool syncing;
+  final bool sidebarVisible;
   final ValueChanged<String> onSelected;
+  final ValueChanged<bool> onSidebarVisibilityChanged;
   final VoidCallback onAddTodo;
   final VoidCallback onAddList;
   final VoidCallback onSearch;
@@ -404,16 +413,18 @@ class _MobileTodoLayout extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _TodoSidebar(
-          entries: entries,
-          selectedId: selectedEntry.id,
-          controller: controller,
-          onSelected: onSelected,
-          onAddTodo: onAddTodo,
-          onAddList: onAddList,
-          onOpenSync: onSyncPage,
-          compact: true,
-        ),
+        if (sidebarVisible)
+          _TodoSidebar(
+            entries: entries,
+            selectedId: selectedEntry.id,
+            controller: controller,
+            onSelected: onSelected,
+            onAddTodo: onAddTodo,
+            onAddList: onAddList,
+            onOpenSync: onSyncPage,
+            compact: true,
+            onHide: () => onSidebarVisibilityChanged(false),
+          ),
         Expanded(
           child: Column(
             children: [
@@ -424,6 +435,9 @@ class _MobileTodoLayout extends StatelessWidget {
                 onSync: onSync,
                 onSyncPage: onSyncPage,
                 compact: true,
+                onShowSidebar: sidebarVisible
+                    ? null
+                    : () => onSidebarVisibilityChanged(true),
               ),
               Expanded(
                 child: _TodoContentPage(
@@ -452,6 +466,7 @@ class _TodoSidebar extends StatelessWidget {
     required this.onAddList,
     required this.onOpenSync,
     this.compact = false,
+    this.onHide,
   });
 
   final List<TodoNavEntry> entries;
@@ -462,6 +477,7 @@ class _TodoSidebar extends StatelessWidget {
   final VoidCallback onAddList;
   final VoidCallback onOpenSync;
   final bool compact;
+  final VoidCallback? onHide;
 
   @override
   Widget build(BuildContext context) {
@@ -479,30 +495,49 @@ class _TodoSidebar extends StatelessWidget {
         children: [
           Padding(
             padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  'MyTodo',
-                  style:
-                      (compact
-                              ? Theme.of(context).textTheme.titleMedium
-                              : Theme.of(context).textTheme.headlineSmall)
-                          ?.copyWith(
-                            color: const Color(0xFF073F3B),
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0,
-                          ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'MyTodo',
+                        style:
+                            (compact
+                                    ? Theme.of(context).textTheme.titleMedium
+                                    : Theme.of(context).textTheme.headlineSmall)
+                                ?.copyWith(
+                                  color: const Color(0xFF073F3B),
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0,
+                                ),
+                      ),
+                      if (!compact) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '本地优先，跨设备同步',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: const Color(0xFF406562)),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-                if (!compact) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '本地优先，跨设备同步',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF406562),
+                if (onHide != null)
+                  Tooltip(
+                    message: '隐藏侧边栏',
+                    child: IconButton(
+                      onPressed: onHide,
+                      icon: const Icon(Icons.menu_open, size: 20),
+                      color: const Color(0xFF0E4D49),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 36,
+                        height: 36,
+                      ),
+                      padding: EdgeInsets.zero,
                     ),
                   ),
-                ],
               ],
             ),
           ),
@@ -687,6 +722,7 @@ class _TopCommandBar extends StatelessWidget {
     required this.onSync,
     required this.onSyncPage,
     this.compact = false,
+    this.onShowSidebar,
   });
 
   final bool syncing;
@@ -695,6 +731,7 @@ class _TopCommandBar extends StatelessWidget {
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final bool compact;
+  final VoidCallback? onShowSidebar;
 
   @override
   Widget build(BuildContext context) {
@@ -706,8 +743,14 @@ class _TopCommandBar extends StatelessWidget {
         border: Border(bottom: BorderSide(color: Color(0xFFE1E9E7))),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          if (onShowSidebar != null)
+            _TopIconButton(
+              tooltip: '显示侧边栏',
+              icon: Icons.menu,
+              onTap: onShowSidebar,
+            ),
+          const Spacer(),
           _TopIconButton(tooltip: '搜索历史', icon: Icons.search, onTap: onSearch),
           _TopIconButton(
             tooltip: '检查更新',
