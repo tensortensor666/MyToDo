@@ -34,6 +34,8 @@ class MyTodoApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'MyTodo',
+      localizationsDelegates: fluent.FluentLocalizations.localizationsDelegates,
+      supportedLocales: fluent.FluentLocalizations.supportedLocales,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: _appAccent,
@@ -362,17 +364,31 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
     final selectedIndex = entries.indexWhere(
       (entry) => entry.id == selectedEntry.id,
     );
+    if (compact) {
+      return _CompactTodoDrawerLayout(
+        entries: entries,
+        selectedEntry: selectedEntry,
+        controller: controller,
+        syncing: syncing,
+        onSelected: onSelected,
+        onAddTodo: onAddTodo,
+        onAddList: onAddList,
+        onSearch: onSearch,
+        onUpdate: onUpdate,
+        onSync: onSync,
+        onSyncPage: onSyncPage,
+        onRefresh: onRefresh,
+      );
+    }
     return fluent.NavigationView(
       contentShape: const RoundedRectangleBorder(),
       pane: fluent.NavigationPane(
         selected: selectedIndex < 0 ? 0 : selectedIndex,
-        displayMode: compact
-            ? fluent.PaneDisplayMode.minimal
-            : fluent.PaneDisplayMode.expanded,
+        displayMode: fluent.PaneDisplayMode.expanded,
         size: fluent.NavigationPaneSize(
           compactWidth: 56,
-          openWidth: compact ? 252 : 320,
-          openMaxWidth: compact ? 280 : 340,
+          openWidth: 320,
+          openMaxWidth: 340,
         ),
         header: Padding(
           padding: const EdgeInsetsDirectional.only(start: 12),
@@ -392,7 +408,7 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
               body: _FluentMainContent(
                 entry: entry,
                 controller: controller,
-                compact: compact,
+                compact: false,
                 syncing: syncing,
                 onAddTodo: onAddTodo,
                 onSearch: onSearch,
@@ -441,6 +457,253 @@ class _FluentTodoNavigationLayout extends StatelessWidget {
   }
 }
 
+class _CompactTodoDrawerLayout extends StatelessWidget {
+  const _CompactTodoDrawerLayout({
+    required this.entries,
+    required this.selectedEntry,
+    required this.controller,
+    required this.syncing,
+    required this.onSelected,
+    required this.onAddTodo,
+    required this.onAddList,
+    required this.onSearch,
+    required this.onUpdate,
+    required this.onSync,
+    required this.onSyncPage,
+    required this.onRefresh,
+  });
+
+  final List<TodoNavEntry> entries;
+  final TodoNavEntry selectedEntry;
+  final AppController controller;
+  final bool syncing;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onAddTodo;
+  final VoidCallback onAddList;
+  final VoidCallback onSearch;
+  final VoidCallback onUpdate;
+  final VoidCallback? onSync;
+  final VoidCallback onSyncPage;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _appBackground,
+      drawer: Drawer(
+        width: 304,
+        backgroundColor: const Color(0xFFF7FAF9),
+        shape: const RoundedRectangleBorder(),
+        child: SafeArea(
+          child: _CompactNavigationDrawer(
+            entries: entries,
+            selectedEntry: selectedEntry,
+            controller: controller,
+            onSelected: onSelected,
+            onAddTodo: onAddTodo,
+            onAddList: onAddList,
+            onSyncPage: onSyncPage,
+          ),
+        ),
+      ),
+      body: Builder(
+        builder: (context) {
+          return _FluentMainContent(
+            entry: selectedEntry,
+            controller: controller,
+            compact: true,
+            syncing: syncing,
+            onAddTodo: onAddTodo,
+            onSearch: onSearch,
+            onUpdate: onUpdate,
+            onSync: onSync,
+            onSyncPage: onSyncPage,
+            onRefresh: onRefresh,
+            onOpenNavigation: Scaffold.of(context).openDrawer,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CompactNavigationDrawer extends StatelessWidget {
+  const _CompactNavigationDrawer({
+    required this.entries,
+    required this.selectedEntry,
+    required this.controller,
+    required this.onSelected,
+    required this.onAddTodo,
+    required this.onAddList,
+    required this.onSyncPage,
+  });
+
+  final List<TodoNavEntry> entries;
+  final TodoNavEntry selectedEntry;
+  final AppController controller;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onAddTodo;
+  final VoidCallback onAddList;
+  final VoidCallback onSyncPage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
+          child: Text(
+            'MyTodo',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: const Color(0xFF123F3B),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            children: [
+              for (final entry in entries)
+                _CompactNavigationTile(
+                  entry: entry,
+                  count: controller.store.activeCountFor(entry.id),
+                  selected: entry.id == selectedEntry.id,
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onSelected(entry.id);
+                  },
+                ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        _DrawerActionTile(
+          icon: Icons.add,
+          label: '添加任务',
+          onTap: () {
+            Navigator.of(context).pop();
+            onAddTodo();
+          },
+        ),
+        _DrawerActionTile(
+          icon: Icons.add_circle_outline,
+          label: '添加清单',
+          onTap: () {
+            Navigator.of(context).pop();
+            onAddList();
+          },
+        ),
+        _DrawerActionTile(
+          icon: Icons.devices,
+          label: '同步和设备',
+          onTap: () {
+            Navigator.of(context).pop();
+            onSyncPage();
+          },
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+class _CompactNavigationTile extends StatelessWidget {
+  const _CompactNavigationTile({
+    required this.entry,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final TodoNavEntry entry;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? _appAccent : const Color(0xFF274B47);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: ListTile(
+        selected: selected,
+        selectedTileColor: _appAccent.withValues(alpha: 0.12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        leading: Icon(entry.icon, color: selected ? _appAccent : entry.accent),
+        title: Text(
+          entry.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: foreground,
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+        trailing: count > 0 ? _DrawerCountBadge(count: count) : null,
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _DrawerActionTile extends StatelessWidget {
+  const _DrawerActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon, color: const Color(0xFF0E4D49)),
+      title: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF123F3B),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+class _DrawerCountBadge extends StatelessWidget {
+  const _DrawerCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: _appAccent,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        count.toString(),
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _FluentMainContent extends StatelessWidget {
   const _FluentMainContent({
     required this.entry,
@@ -453,6 +716,7 @@ class _FluentMainContent extends StatelessWidget {
     required this.onSync,
     required this.onSyncPage,
     required this.onRefresh,
+    this.onOpenNavigation,
   });
 
   final TodoNavEntry entry;
@@ -465,6 +729,7 @@ class _FluentMainContent extends StatelessWidget {
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final Future<void> Function() onRefresh;
+  final VoidCallback? onOpenNavigation;
 
   @override
   Widget build(BuildContext context) {
@@ -477,6 +742,7 @@ class _FluentMainContent extends StatelessWidget {
           onSync: onSync,
           onSyncPage: onSyncPage,
           compact: compact,
+          onOpenNavigation: onOpenNavigation,
         ),
         Expanded(
           child: _TodoContentPage(
@@ -500,6 +766,7 @@ class _TopCommandBar extends StatelessWidget {
     required this.onSync,
     required this.onSyncPage,
     this.compact = false,
+    this.onOpenNavigation,
   });
 
   final bool syncing;
@@ -508,6 +775,7 @@ class _TopCommandBar extends StatelessWidget {
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final bool compact;
+  final VoidCallback? onOpenNavigation;
 
   @override
   Widget build(BuildContext context) {
@@ -520,6 +788,12 @@ class _TopCommandBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (onOpenNavigation != null)
+            _TopIconButton(
+              tooltip: '打开侧边栏',
+              icon: Icons.menu,
+              onTap: onOpenNavigation,
+            ),
           const Spacer(),
           _TopIconButton(tooltip: '搜索历史', icon: Icons.search, onTap: onSearch),
           _TopIconButton(
