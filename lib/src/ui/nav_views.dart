@@ -112,10 +112,6 @@ String subtitleForView(String id) {
 }
 
 int? defaultDueAtForNewTodoView(String selectedListId, DateTime now) {
-  if (selectedListId != TodoList.viewMyDayId &&
-      selectedListId != TodoList.viewPlannedId) {
-    return null;
-  }
   return DateTime(
     now.year,
     now.month,

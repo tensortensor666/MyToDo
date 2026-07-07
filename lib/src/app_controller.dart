@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'data/todo_store.dart';
@@ -11,6 +13,8 @@ class AppController extends ChangeNotifier {
 
   final TodoStore store;
   final SupabaseSyncService supabaseSync;
+  Timer? _dailyRefreshTimer;
+  bool _disposed = false;
 
   static Future<AppController> create() async {
     final store = await TodoStore.open();
@@ -20,6 +24,7 @@ class AppController extends ChangeNotifier {
       supabaseSync: supabaseSync,
     );
     await supabaseSync.load();
+    controller._scheduleNextDailyRefresh();
     return controller;
   }
 
@@ -34,8 +39,38 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  @visibleForTesting
+  static Duration delayUntilNextDailyRefresh(DateTime now) {
+    final nextRefresh = DateTime(now.year, now.month, now.day + 1, 0, 0, 1);
+    return nextRefresh.difference(now);
+  }
+
+  void _scheduleNextDailyRefresh() {
+    _dailyRefreshTimer?.cancel();
+    if (_disposed) {
+      return;
+    }
+    _dailyRefreshTimer = Timer(delayUntilNextDailyRefresh(DateTime.now()), () {
+      unawaited(_refreshForNewDay());
+    });
+  }
+
+  Future<void> _refreshForNewDay() async {
+    if (_disposed) {
+      return;
+    }
+    await store.ensureDailyRecurringTodos();
+    if (_disposed) {
+      return;
+    }
+    notifyListeners();
+    _scheduleNextDailyRefresh();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
+    _dailyRefreshTimer?.cancel();
     store.removeListener(notifyListeners);
     supabaseSync.removeListener(notifyListeners);
     supabaseSync.close();

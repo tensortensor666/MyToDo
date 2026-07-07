@@ -567,6 +567,9 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         nextImportant == todo.important) {
       return;
     }
+    final sortOrder = listId == todo.listId
+        ? todo.sortOrder
+        : await _nextTodoSortOrder(_db, listId);
     await _writeLocalTodoEvent(
       'todo.upsert',
       todo.copyWith(
@@ -575,6 +578,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         dueAt: dueAt,
         reminderAt: reminderAt,
         important: nextImportant,
+        sortOrder: sortOrder,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );

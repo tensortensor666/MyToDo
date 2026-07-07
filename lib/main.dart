@@ -12,6 +12,7 @@ import 'src/search/history_search.dart';
 import 'src/sync/supabase_sync_service.dart';
 import 'src/ui/theme/app_theme.dart';
 import 'src/ui/nav_views.dart';
+import 'src/ui/important_toggle_button.dart';
 import 'src/ui/reorder_items.dart';
 import 'src/ui/todo_view_filter.dart';
 import 'src/update/update_page.dart';
@@ -192,6 +193,7 @@ class _TodoHomeState extends State<TodoHome> {
                         },
                         onAddTodo: _showAddTodoDialog,
                         onAddList: _showAddListDialog,
+                        onDeleteList: _deleteTodoList,
                         onSearch: _openHistorySearch,
                         onUpdate: _openUpdatePage,
                         onSync: _syncingFromHome
@@ -282,6 +284,48 @@ class _TodoHomeState extends State<TodoHome> {
     }
   }
 
+  Future<void> _deleteTodoList(TodoNavEntry entry) async {
+    final list = entry.list;
+    if (list == null || list.isSystem) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('删除清单'),
+          content: Text('确定删除“${list.name}”吗？清单内的任务会保留并移到“全部”。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('删除'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await widget.controller.store.deleteTodoList(list);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      if (_selectedListId == list.id) {
+        _selectedListId = TodoList.inboxId;
+      }
+    });
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('已删除清单“${list.name}”')));
+  }
+
   Future<void> _openSyncPage() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -342,6 +386,7 @@ class _FluentTodoNavigationLayout extends StatefulWidget {
     required this.onSelected,
     required this.onAddTodo,
     required this.onAddList,
+    required this.onDeleteList,
     required this.onSearch,
     required this.onUpdate,
     required this.onSync,
@@ -357,6 +402,7 @@ class _FluentTodoNavigationLayout extends StatefulWidget {
   final ValueChanged<String> onSelected;
   final VoidCallback onAddTodo;
   final VoidCallback onAddList;
+  final Future<void> Function(TodoNavEntry entry) onDeleteList;
   final VoidCallback onSearch;
   final VoidCallback onUpdate;
   final VoidCallback? onSync;
@@ -386,6 +432,7 @@ class _FluentTodoNavigationLayoutState
         onSelected: widget.onSelected,
         onAddTodo: widget.onAddTodo,
         onAddList: widget.onAddList,
+        onDeleteList: widget.onDeleteList,
         onSearch: widget.onSearch,
         onUpdate: widget.onUpdate,
         onSync: widget.onSync,
@@ -457,6 +504,12 @@ class _FluentTodoNavigationLayoutState
             title: const Text('添加清单'),
             onTap: widget.onAddList,
           ),
+          if (widget.selectedEntry.isCustomList)
+            fluent.PaneItemAction(
+              icon: const Icon(Icons.delete_outline),
+              title: const Text('删除当前清单'),
+              onTap: () => unawaited(widget.onDeleteList(widget.selectedEntry)),
+            ),
           fluent.PaneItemSeparator(),
           fluent.PaneItemAction(
             icon: const Icon(Icons.search),
@@ -515,6 +568,7 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
     required this.onSelected,
     required this.onAddTodo,
     required this.onAddList,
+    required this.onDeleteList,
     required this.onSearch,
     required this.onUpdate,
     required this.onSync,
@@ -529,6 +583,7 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final VoidCallback onAddTodo;
   final VoidCallback onAddList;
+  final Future<void> Function(TodoNavEntry entry) onDeleteList;
   final VoidCallback onSearch;
   final VoidCallback onUpdate;
   final VoidCallback? onSync;
@@ -551,6 +606,7 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
             onSelected: onSelected,
             onAddTodo: onAddTodo,
             onAddList: onAddList,
+            onDeleteList: onDeleteList,
             onSearch: onSearch,
             onUpdate: onUpdate,
             onSync: onSync,
@@ -588,6 +644,7 @@ class _CompactNavigationDrawer extends StatelessWidget {
     required this.onSelected,
     required this.onAddTodo,
     required this.onAddList,
+    required this.onDeleteList,
     required this.onSearch,
     required this.onUpdate,
     required this.onSync,
@@ -601,6 +658,7 @@ class _CompactNavigationDrawer extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final VoidCallback onAddTodo;
   final VoidCallback onAddList;
+  final Future<void> Function(TodoNavEntry entry) onDeleteList;
   final VoidCallback onSearch;
   final VoidCallback onUpdate;
   final VoidCallback? onSync;
@@ -637,6 +695,12 @@ class _CompactNavigationDrawer extends StatelessWidget {
                     Navigator.of(context).pop();
                     onSelected(entry.id);
                   },
+                  onDelete: entry.isCustomList
+                      ? () {
+                          Navigator.of(context).pop();
+                          unawaited(onDeleteList(entry));
+                        }
+                      : null,
                 ),
             ],
           ),
@@ -710,12 +774,14 @@ class _CompactNavigationTile extends StatelessWidget {
     required this.count,
     required this.selected,
     required this.onTap,
+    this.onDelete,
   });
 
   final TodoNavEntry entry;
   final int count;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -736,12 +802,56 @@ class _CompactNavigationTile extends StatelessWidget {
             fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
-        trailing: count > 0 ? _DrawerCountBadge(count: count) : null,
+        trailing: count > 0 || onDelete != null
+            ? _CompactNavigationTileActions(count: count, onDelete: onDelete)
+            : null,
         onTap: onTap,
       ),
     );
   }
 }
+
+class _CompactNavigationTileActions extends StatelessWidget {
+  const _CompactNavigationTileActions({required this.count, this.onDelete});
+
+  final int count;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (count > 0) _DrawerCountBadge(count: count),
+        if (count > 0 && onDelete != null) const SizedBox(width: 4),
+        if (onDelete != null)
+          PopupMenuButton<_ListMenuAction>(
+            tooltip: '清单操作',
+            icon: const Icon(Icons.more_horiz, size: 20),
+            onSelected: (action) {
+              switch (action) {
+                case _ListMenuAction.delete:
+                  onDelete?.call();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _ListMenuAction.delete,
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('删除清单'),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+enum _ListMenuAction { delete }
 
 class _DrawerActionTile extends StatelessWidget {
   const _DrawerActionTile({
@@ -1389,15 +1499,30 @@ class _TodoTile extends StatelessWidget {
                       controller.store.setCompleted(todo, value ?? false);
                     },
                   ),
-            title: Text(
-              todo.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                decoration: inactive ? TextDecoration.lineThrough : null,
-                color: inactive ? scheme.onSurfaceVariant : null,
-                fontWeight: FontWeight.w600,
-              ),
+            title: Row(
+              children: [
+                if (!todo.deleted) ...[
+                  ImportantToggleButton(
+                    important: todo.important,
+                    onPressed: () {
+                      controller.store.setImportant(todo, !todo.important);
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Expanded(
+                  child: Text(
+                    todo.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      decoration: inactive ? TextDecoration.lineThrough : null,
+                      color: inactive ? scheme.onSurfaceVariant : null,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
             ),
             subtitle: Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -1526,6 +1651,9 @@ class _TodoMetadata extends StatelessWidget {
         ),
       );
     }
+    if (todo.sourceType == TodoSource.recurring) {
+      chips.add(const _MetaChip(icon: Icons.repeat, label: '每天'));
+    }
     if (todo.deleted) {
       chips.add(
         _MetaChip(
@@ -1592,6 +1720,16 @@ Future<void> _showTodoEditorDialog(
   bool initialImportant = false,
 }) async {
   final titleController = TextEditingController(text: todo?.title ?? '');
+  final lists = controller.store.lists;
+  var selectedListId = todo?.listId ?? initialListId;
+  if (!lists.any((list) => list.id == selectedListId)) {
+    selectedListId = lists.any((list) => list.id == TodoList.inboxId)
+        ? TodoList.inboxId
+        : lists.isEmpty
+        ? TodoList.inboxId
+        : lists.first.id;
+  }
+  var repeat = todo == null ? _TodoRepeat.none : _TodoRepeat.none;
   var dueAt = todo?.dueAt ?? initialDueAt;
   var reminderAt = todo?.reminderAt;
   _TodoEditorResult? result;
@@ -1654,6 +1792,8 @@ Future<void> _showTodoEditorDialog(
               await close(
                 _TodoEditorResult(
                   title: trimmed,
+                  listId: selectedListId,
+                  repeat: repeat,
                   dueAt: dueAt,
                   reminderAt: reminderAt,
                 ),
@@ -1687,18 +1827,76 @@ Future<void> _showTodoEditorDialog(
                         onSubmitted: (_) => save(),
                       ),
                       const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedListId,
+                        decoration: const InputDecoration(
+                          labelText: '所属清单',
+                          prefixIcon: Icon(Icons.folder_outlined),
+                        ),
+                        items: [
+                          for (final list in lists)
+                            DropdownMenuItem(
+                              value: list.id,
+                              child: Text(
+                                list.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => selectedListId = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      if (todo == null) ...[
+                        DropdownButtonFormField<_TodoRepeat>(
+                          initialValue: repeat,
+                          decoration: const InputDecoration(
+                            labelText: '重复',
+                            prefixIcon: Icon(Icons.repeat),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: _TodoRepeat.none,
+                              child: Text('不重复'),
+                            ),
+                            DropdownMenuItem(
+                              value: _TodoRepeat.daily,
+                              child: Text('每天'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              setDialogState(() {
+                                repeat = value;
+                                if (repeat == _TodoRepeat.daily) {
+                                  dueAt = null;
+                                  reminderAt = null;
+                                }
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                      ],
                       _DateTimeField(
                         label: '截止日期',
                         value: dueAt,
                         emptyLabel: '未设置',
                         icon: Icons.event,
-                        onPick: () => pickDateTime(
-                          dialogContext: dialogContext,
-                          setDialogState: setDialogState,
-                          currentValue: dueAt,
-                          onChanged: (value) => dueAt = value,
-                        ),
-                        onClear: dueAt == null
+                        enabled: repeat != _TodoRepeat.daily,
+                        onPick: repeat == _TodoRepeat.daily
+                            ? null
+                            : () => pickDateTime(
+                                dialogContext: dialogContext,
+                                setDialogState: setDialogState,
+                                currentValue: dueAt,
+                                onChanged: (value) => dueAt = value,
+                              ),
+                        onClear: dueAt == null || repeat == _TodoRepeat.daily
                             ? null
                             : () => setDialogState(() => dueAt = null),
                       ),
@@ -1708,13 +1906,17 @@ Future<void> _showTodoEditorDialog(
                         value: reminderAt,
                         emptyLabel: '未设置',
                         icon: Icons.notifications_none,
-                        onPick: () => pickDateTime(
-                          dialogContext: dialogContext,
-                          setDialogState: setDialogState,
-                          currentValue: reminderAt,
-                          onChanged: (value) => reminderAt = value,
-                        ),
-                        onClear: reminderAt == null
+                        enabled: repeat != _TodoRepeat.daily,
+                        onPick: repeat == _TodoRepeat.daily
+                            ? null
+                            : () => pickDateTime(
+                                dialogContext: dialogContext,
+                                setDialogState: setDialogState,
+                                currentValue: reminderAt,
+                                onChanged: (value) => reminderAt = value,
+                              ),
+                        onClear:
+                            reminderAt == null || repeat == _TodoRepeat.daily
                             ? null
                             : () => setDialogState(() => reminderAt = null),
                       ),
@@ -1738,20 +1940,27 @@ Future<void> _showTodoEditorDialog(
     return;
   }
   if (todo == null) {
-    await controller.store.createTodo(
-      result.title,
-      listId: initialListId,
-      dueAt: result.dueAt,
-      reminderAt: result.reminderAt,
-      important: initialImportant,
-    );
+    if (result.repeat == _TodoRepeat.daily) {
+      await controller.store.createRecurringTemplate(
+        result.title,
+        listId: result.listId,
+      );
+    } else {
+      await controller.store.createTodo(
+        result.title,
+        listId: result.listId,
+        dueAt: result.dueAt,
+        reminderAt: result.reminderAt,
+        important: initialImportant,
+      );
+    }
   } else {
     await controller.store.updateTodo(
       todo,
       title: result.title,
       dueAt: result.dueAt,
       reminderAt: result.reminderAt,
-      listId: todo.listId,
+      listId: result.listId,
     );
   }
 }
@@ -1864,14 +2073,20 @@ bool get _shouldAutofocusEditor => !(Platform.isAndroid || Platform.isIOS);
 class _TodoEditorResult {
   const _TodoEditorResult({
     required this.title,
+    required this.listId,
+    required this.repeat,
     required this.dueAt,
     required this.reminderAt,
   });
 
   final String title;
+  final String listId;
+  final _TodoRepeat repeat;
   final int? dueAt;
   final int? reminderAt;
 }
+
+enum _TodoRepeat { none, daily }
 
 class _TodoListEditorResult {
   const _TodoListEditorResult({required this.name, required this.color});
@@ -1928,45 +2143,61 @@ class _DateTimeField extends StatelessWidget {
     required this.icon,
     required this.onPick,
     required this.onClear,
+    this.enabled = true,
   });
 
   final String label;
   final int? value;
   final String emptyLabel;
   final IconData icon;
-  final VoidCallback onPick;
+  final VoidCallback? onPick;
   final VoidCallback? onClear;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final foreground = enabled
+        ? scheme.onSurfaceVariant
+        : scheme.onSurfaceVariant.withValues(alpha: 0.48);
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onPick,
+        onTap: enabled ? onPick : null,
         borderRadius: BorderRadius.circular(8),
         child: Container(
           constraints: const BoxConstraints(minHeight: 64),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: scheme.outlineVariant),
+            border: Border.all(
+              color: enabled
+                  ? scheme.outlineVariant
+                  : scheme.outlineVariant.withValues(alpha: 0.6),
+            ),
           ),
           child: Row(
             children: [
-              Icon(icon, color: scheme.onSurfaceVariant),
+              Icon(icon, color: foreground),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(label, style: Theme.of(context).textTheme.labelLarge),
+                    Text(
+                      label,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelLarge?.copyWith(color: foreground),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       value == null ? emptyLabel : _formatDateTime(value!),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: value == null
+                        color: !enabled
+                            ? foreground
+                            : value == null
                             ? scheme.onSurfaceVariant
                             : scheme.onSurface,
                       ),
@@ -1975,7 +2206,7 @@ class _DateTimeField extends StatelessWidget {
                 ),
               ),
               if (onClear == null)
-                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant)
+                Icon(Icons.chevron_right, color: foreground)
               else
                 IconButton(
                   tooltip: '清除',

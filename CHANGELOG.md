@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.5 - 2026-07-07
+
+- Added an inline star button on each todo item to mark or unmark important tasks.
+- Added task list reassignment from the task editor.
+- Added daily recurring task creation from the add-task dialog.
+- Defaulted newly created todos to today's due date.
+- Added midnight refresh so My Day updates while the app remains open.
+
 ## 1.4.4 - 2026-07-06
 
 - Removed LAN pairing and local network device sync.

@@ -177,6 +177,42 @@ void main() {
     expect(store.todos.single.reminderAt, 3000);
   });
 
+  test('todo can move to another list and append to target list', () async {
+    final store = await TodoStore.openInMemoryForTesting(
+      device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
+    );
+
+    final work = await store.createTodoList('Work');
+    final life = await store.createTodoList('Life');
+    await store.createTodo('Move me', listId: work.id);
+    await store.createTodo('Existing life item', listId: life.id);
+
+    final movingTodo = store.todos.firstWhere(
+      (todo) => todo.title == 'Move me',
+    );
+    final existingTodo = store.todos.firstWhere(
+      (todo) => todo.title == 'Existing life item',
+    );
+
+    await store.updateTodo(
+      movingTodo,
+      title: movingTodo.title,
+      listId: life.id,
+      dueAt: movingTodo.dueAt,
+      reminderAt: movingTodo.reminderAt,
+    );
+
+    expect(store.visibleTodosForList(work.id), isEmpty);
+    expect(store.visibleTodosForList(life.id).map((todo) => todo.title), [
+      'Existing life item',
+      'Move me',
+    ]);
+    expect(
+      store.todos.firstWhere((todo) => todo.title == 'Move me').sortOrder,
+      greaterThan(existingTodo.sortOrder),
+    );
+  });
+
   test('deleted todo can be restored', () async {
     final store = await TodoStore.openInMemoryForTesting(
       device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
