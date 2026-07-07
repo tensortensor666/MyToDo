@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
@@ -459,8 +460,8 @@ class _FluentTodoNavigationLayoutState
         ),
         size: fluent.NavigationPaneSize(
           compactWidth: 56,
-          openWidth: 320,
-          openMaxWidth: 340,
+          openWidth: 272,
+          openMaxWidth: 292,
         ),
         header: Padding(
           padding: const EdgeInsetsDirectional.only(start: 12),
@@ -592,10 +593,14 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final drawerWidth = math.min(
+      MediaQuery.sizeOf(context).width * 0.82,
+      280.0,
+    );
     return Scaffold(
       backgroundColor: _appBackground,
       drawer: Drawer(
-        width: 304,
+        width: drawerWidth,
         backgroundColor: const Color(0xFFF7FAF9),
         shape: const RoundedRectangleBorder(),
         child: SafeArea(
@@ -945,7 +950,10 @@ class _FluentMainContent extends StatelessWidget {
     return Column(
       children: [
         if (onOpenNavigation != null)
-          _MobileNavigationBar(onOpenNavigation: onOpenNavigation!),
+          _MobileNavigationBar(
+            entry: entry,
+            onOpenNavigation: onOpenNavigation!,
+          ),
         Expanded(
           child: _TodoContentPage(
             entry: entry,
@@ -961,15 +969,19 @@ class _FluentMainContent extends StatelessWidget {
 }
 
 class _MobileNavigationBar extends StatelessWidget {
-  const _MobileNavigationBar({required this.onOpenNavigation});
+  const _MobileNavigationBar({
+    required this.entry,
+    required this.onOpenNavigation,
+  });
 
+  final TodoNavEntry entry;
   final VoidCallback onOpenNavigation;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 52,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      height: 58,
+      padding: const EdgeInsets.fromLTRB(6, 4, 12, 4),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE1E9E7))),
@@ -981,7 +993,34 @@ class _MobileNavigationBar extends StatelessWidget {
             icon: Icons.menu,
             onTap: onOpenNavigation,
           ),
-          const Spacer(),
+          const SizedBox(width: 4),
+          Icon(entry.icon, color: entry.accent, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: const Color(0xFF123F3B),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  entry.isVirtual ? subtitleForView(entry.id) : '当前清单任务',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF5D7976),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1055,21 +1094,24 @@ class _TodoContentPageState extends State<_TodoContentPage> {
         constraints: const BoxConstraints(maxWidth: 980),
         child: Padding(
           padding: widget.compact
-              ? const EdgeInsets.fromLTRB(12, 14, 12, 0)
+              ? const EdgeInsets.fromLTRB(12, 10, 12, 0)
               : const EdgeInsets.fromLTRB(24, 32, 24, 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _ContentHeader(entry: widget.entry),
-              const SizedBox(height: 16),
+              if (!widget.compact) ...[
+                _ContentHeader(entry: widget.entry),
+                const SizedBox(height: 16),
+              ],
               _TodoOverview(
                 todos: todos,
                 selectedFilter: _filter,
+                compact: widget.compact,
                 onFilterChanged: (filter) {
                   setState(() => _filter = filter);
                 },
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: widget.compact ? 12 : 20),
               Expanded(
                 child: widget.onRefresh == null
                     ? list
@@ -1218,46 +1260,58 @@ class _TodoOverview extends StatelessWidget {
     required this.todos,
     required this.selectedFilter,
     required this.onFilterChanged,
+    this.compact = false,
   });
 
   final List<TodoItem> todos;
   final TodoViewFilter selectedFilter;
   final ValueChanged<TodoViewFilter> onFilterChanged;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final counts = countTodosByView(todos, now);
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _OverviewTile(
-          label: '当前',
-          value: counts.active,
-          icon: Icons.radio_button_unchecked,
-          selected: selectedFilter == TodoViewFilter.active,
-          color: Theme.of(context).colorScheme.primary,
-          onTap: () => onFilterChanged(TodoViewFilter.active),
-        ),
-        _OverviewTile(
-          label: '逾期',
-          value: counts.overdue,
-          icon: Icons.priority_high,
-          selected: selectedFilter == TodoViewFilter.overdue,
-          color: Theme.of(context).colorScheme.error,
-          onTap: () => onFilterChanged(TodoViewFilter.overdue),
-        ),
-        _OverviewTile(
-          label: '完成',
-          value: counts.completed,
-          icon: Icons.check_circle_outline,
-          selected: selectedFilter == TodoViewFilter.completed,
-          color: const Color(0xFF2E7D32),
-          onTap: () => onFilterChanged(TodoViewFilter.completed),
-        ),
-      ],
-    );
+    final tiles = [
+      _OverviewTile(
+        label: '当前',
+        value: counts.active,
+        icon: Icons.radio_button_unchecked,
+        selected: selectedFilter == TodoViewFilter.active,
+        color: Theme.of(context).colorScheme.primary,
+        compact: compact,
+        onTap: () => onFilterChanged(TodoViewFilter.active),
+      ),
+      _OverviewTile(
+        label: '逾期',
+        value: counts.overdue,
+        icon: Icons.priority_high,
+        selected: selectedFilter == TodoViewFilter.overdue,
+        color: Theme.of(context).colorScheme.error,
+        compact: compact,
+        onTap: () => onFilterChanged(TodoViewFilter.overdue),
+      ),
+      _OverviewTile(
+        label: '完成',
+        value: counts.completed,
+        icon: Icons.check_circle_outline,
+        selected: selectedFilter == TodoViewFilter.completed,
+        color: const Color(0xFF2E7D32),
+        compact: compact,
+        onTap: () => onFilterChanged(TodoViewFilter.completed),
+      ),
+    ];
+    if (compact) {
+      return Row(
+        children: [
+          for (var index = 0; index < tiles.length; index++) ...[
+            Expanded(child: tiles[index]),
+            if (index != tiles.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      );
+    }
+    return Wrap(spacing: 8, runSpacing: 8, children: tiles);
   }
 }
 
@@ -1269,6 +1323,7 @@ class _OverviewTile extends StatelessWidget {
     required this.color,
     required this.selected,
     required this.onTap,
+    this.compact = false,
   });
 
   final String label;
@@ -1277,6 +1332,7 @@ class _OverviewTile extends StatelessWidget {
   final Color color;
   final bool selected;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1292,8 +1348,11 @@ class _OverviewTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          width: 112,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          width: compact ? null : 112,
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 12,
+            vertical: compact ? 8 : 10,
+          ),
           decoration: BoxDecoration(
             color: background,
             border: Border.all(color: borderColor, width: selected ? 1.4 : 1),
@@ -1303,7 +1362,7 @@ class _OverviewTile extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 18, color: color),
-              const SizedBox(width: 8),
+              SizedBox(width: compact ? 6 : 8),
               Expanded(
                 child: Text(
                   label,
