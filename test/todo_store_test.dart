@@ -34,13 +34,14 @@ void main() {
       device: const LocalDevice(deviceId: 'device-b', name: 'Device B'),
     );
 
-    await first.createTodo('Buy milk');
+    await first.createTodo('Buy milk', notes: '- use Markdown');
     final events = await first.eventsAfterClock(await second.eventClock());
     final applied = await second.applyRemoteEvents(events);
 
     expect(applied, 1);
     expect(second.todos, hasLength(1));
     expect(second.todos.single.title, 'Buy milk');
+    expect(second.todos.single.notes, '- use Markdown');
     expect(second.todos.single.completed, isFalse);
   });
 
@@ -114,7 +115,7 @@ void main() {
       device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),
     );
 
-    await store.createTodo('Archive invoice');
+    await store.createTodo('Archive invoice', notes: 'Receipt #2026');
     final todo = store.todos.single;
     await store.deleteTodo(todo);
 
@@ -124,6 +125,37 @@ void main() {
     expect(results, hasLength(1));
     expect(results.single.title, 'Archive invoice');
     expect(results.single.deleted, isTrue);
+
+    final noteResults = store.searchTodos('receipt');
+    expect(noteResults, hasLength(1));
+    expect(noteResults.single.notes, 'Receipt #2026');
+  });
+
+  test('todo notes can be created updated searched and synced', () async {
+    final first = await _freshStore('device-a');
+    final second = await _freshStore('device-b');
+
+    await first.createTodo('Research sync', notes: '- draft\n**important**');
+
+    expect(first.todos.single.notes, '- draft\n**important**');
+    expect(first.searchTodos('important').single.title, 'Research sync');
+
+    await first.updateTodo(
+      first.todos.single,
+      title: 'Research sync',
+      listId: first.todos.single.listId,
+      dueAt: first.todos.single.dueAt,
+      reminderAt: first.todos.single.reminderAt,
+      notes: '## Plan\n- confirm API',
+    );
+
+    expect(first.todos.single.notes, '## Plan\n- confirm API');
+
+    final events = await first.eventsAfterClock(await second.eventClock());
+    await second.applyRemoteEvents(events);
+
+    expect(second.todos.single.notes, '## Plan\n- confirm API');
+    expect(second.searchTodos('confirm API'), hasLength(1));
   });
 
   test('todos can be manually reordered and synced', () async {
@@ -237,7 +269,10 @@ void main() {
     );
 
     expect(store.lists.map((list) => list.id), contains(TodoList.inboxId));
-    expect(store.lists.map((list) => list.id), contains(TodoList.dailyId));
+    expect(
+      store.lists.map((list) => list.id),
+      isNot(contains(TodoList.dailyId)),
+    );
 
     final work = await store.createTodoList('Work');
     await store.createTodo('Inbox item');
@@ -256,18 +291,23 @@ void main() {
 
     await store.createRecurringTemplate(
       'Brush teeth',
-      listId: TodoList.dailyId,
+      listId: TodoList.inboxId,
+      notes: '- morning routine',
     );
-    final firstCount = store.visibleTodosForList(TodoList.dailyId).length;
+    final firstCount = store.visibleTodosForList(TodoList.inboxId).length;
 
     await store.ensureDailyRecurringTodos();
-    final secondCount = store.visibleTodosForList(TodoList.dailyId).length;
+    final secondCount = store.visibleTodosForList(TodoList.inboxId).length;
 
     expect(firstCount, 1);
     expect(secondCount, 1);
     expect(
-      store.visibleTodosForList(TodoList.dailyId).single.sourceType,
+      store.visibleTodosForList(TodoList.inboxId).single.sourceType,
       TodoSource.recurring,
+    );
+    expect(
+      store.visibleTodosForList(TodoList.inboxId).single.notes,
+      '- morning routine',
     );
   });
 
@@ -353,12 +393,71 @@ CREATE TABLE todo_lists (
     );
 
     expect(store.lists.map((list) => list.id), contains(TodoList.inboxId));
-    expect(store.lists.map((list) => list.id), contains(TodoList.dailyId));
+    expect(
+      store.lists.map((list) => list.id),
+      isNot(contains(TodoList.dailyId)),
+    );
     await expectLater(
-      store.createRecurringTemplate('Brush teeth', listId: TodoList.dailyId),
+      store.createRecurringTemplate('Brush teeth', listId: TodoList.inboxId),
       completes,
     );
   });
+
+  test(
+    'legacy daily system list is removed and synced todos move to inbox',
+    () async {
+      final store = await _freshStore('device-a');
+
+      final legacyList = TodoList(
+        id: TodoList.dailyId,
+        name: '生活日常',
+        sortOrder: 1,
+        isSystem: true,
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      final legacyTodo = TodoItem(
+        id: 'legacy-todo',
+        title: 'Legacy daily task',
+        completed: false,
+        deleted: false,
+        createdAt: 200,
+        updatedAt: 200,
+        listId: TodoList.dailyId,
+      );
+
+      await store.applyRemoteEvents([
+        TodoEvent(
+          eventId: 'legacy-list',
+          deviceId: 'old-device',
+          seq: 1,
+          timestamp: 100,
+          type: 'list.upsert',
+          todoId: TodoList.dailyId,
+          payload: legacyList.toJson(),
+        ),
+        TodoEvent(
+          eventId: 'legacy-todo',
+          deviceId: 'old-device',
+          seq: 2,
+          timestamp: 200,
+          type: 'todo.upsert',
+          todoId: legacyTodo.id,
+          payload: legacyTodo.toJson(),
+        ),
+      ]);
+
+      expect(
+        store.lists.map((list) => list.id),
+        isNot(contains(TodoList.dailyId)),
+      );
+      expect(store.todos.single.listId, TodoList.inboxId);
+      expect(
+        store.visibleTodosForList(TodoList.inboxId).single.title,
+        'Legacy daily task',
+      );
+    },
+  );
 
   test('important flag persists and syncs between stores', () async {
     final first = await _freshStore('device-a');
@@ -408,7 +507,7 @@ CREATE TABLE todo_lists (
       final store = await _freshStore('device-a');
       await store.createRecurringTemplate(
         'Daily chore',
-        listId: TodoList.dailyId,
+        listId: TodoList.inboxId,
       );
       await store.createTodo('Due today', dueAt: _endOfTodayMs());
       await store.createTodo('Due tomorrow', dueAt: _endOfTodayMs() + 86400000);

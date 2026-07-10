@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS todos (
   source_type TEXT NOT NULL DEFAULT '${TodoSource.manual}',
   due_at INTEGER,
   reminder_at INTEGER,
+  notes TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0
 )
 ''');
@@ -172,9 +173,11 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
   start_date TEXT NOT NULL,
   archived INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  notes TEXT NOT NULL DEFAULT ''
 )
 ''');
+    await _ensureRecurringTemplateColumns(db);
     await db.execute(
       'CREATE INDEX IF NOT EXISTS events_device_seq_idx ON events(device_id, seq)',
     );
@@ -190,7 +193,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     await db.execute(
       'CREATE INDEX IF NOT EXISTS recurring_templates_list_idx ON recurring_templates(list_id, archived)',
     );
-    await _seedSystemLists(db);
+    await _ensureSystemLists(db);
   }
 
   static Future<void> _ensureTodoColumns(DatabaseExecutor db) async {
@@ -222,6 +225,11 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         'ALTER TABLE todos ADD COLUMN important INTEGER NOT NULL DEFAULT 0',
       );
     }
+    if (!columns.contains('notes')) {
+      await db.execute(
+        'ALTER TABLE todos ADD COLUMN notes TEXT NOT NULL DEFAULT \'\'',
+      );
+    }
     if (!columns.contains('sort_order')) {
       await db.execute(
         'ALTER TABLE todos ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0',
@@ -237,6 +245,17 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     }
   }
 
+  static Future<void> _ensureRecurringTemplateColumns(
+    DatabaseExecutor db,
+  ) async {
+    final columns = await _tableColumns(db, 'recurring_templates');
+    if (!columns.contains('notes')) {
+      await db.execute(
+        'ALTER TABLE recurring_templates ADD COLUMN notes TEXT NOT NULL DEFAULT \'\'',
+      );
+    }
+  }
+
   static Future<Set<String>> _tableColumns(
     DatabaseExecutor db,
     String tableName,
@@ -245,9 +264,10 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     return rows.map((row) => row['name']).whereType<String>().toSet();
   }
 
-  static Future<void> _seedSystemLists(DatabaseExecutor db) async {
+  static Future<void> _ensureSystemLists(DatabaseExecutor db) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final systemLists = [
+    await db.insert(
+      'todo_lists',
       TodoList(
         id: TodoList.inboxId,
         name: '全部',
@@ -255,23 +275,33 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         isSystem: true,
         createdAt: now,
         updatedAt: now,
-      ),
-      TodoList(
-        id: TodoList.dailyId,
-        name: '生活日常',
-        sortOrder: 1,
-        isSystem: true,
-        createdAt: now,
-        updatedAt: now,
-      ),
-    ];
-    for (final list in systemLists) {
-      await db.insert(
-        'todo_lists',
-        list.toDb(),
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    }
+      ).toDb(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    await _removeLegacyDailySystemList(db, now);
+  }
+
+  static Future<void> _removeLegacyDailySystemList(
+    DatabaseExecutor db,
+    int timestamp,
+  ) async {
+    await db.update(
+      'todos',
+      {'list_id': TodoList.inboxId, 'updated_at': timestamp},
+      where: 'list_id = ?',
+      whereArgs: [TodoList.dailyId],
+    );
+    await db.update(
+      'recurring_templates',
+      {'list_id': TodoList.inboxId, 'updated_at': timestamp},
+      where: 'list_id = ?',
+      whereArgs: [TodoList.dailyId],
+    );
+    await db.delete(
+      'todo_lists',
+      where: 'id = ? AND is_system = 1',
+      whereArgs: [TodoList.dailyId],
+    );
   }
 
   static String _defaultDeviceName(String deviceId) {
@@ -284,7 +314,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
   }
 
   Future<void> reload() async {
-    await _seedSystemLists(_db);
+    await _ensureSystemLists(_db);
     final listRows = await _db.query(
       'todo_lists',
       orderBy: 'sort_order ASC, created_at ASC',
@@ -361,7 +391,11 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       return _todoHistory;
     }
     return _todoHistory
-        .where((todo) => todo.title.toLowerCase().contains(normalized))
+        .where(
+          (todo) =>
+              todo.title.toLowerCase().contains(normalized) ||
+              todo.notes.toLowerCase().contains(normalized),
+        )
         .toList(growable: false);
   }
 
@@ -415,6 +449,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
   Future<RecurringTemplate> createRecurringTemplate(
     String title, {
     required String listId,
+    String notes = '',
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -430,6 +465,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       archived: false,
       createdAt: now.millisecondsSinceEpoch,
       updatedAt: now.millisecondsSinceEpoch,
+      notes: notes.trim(),
     );
     await _writeLocalEntityEvent(
       'template.upsert',
@@ -444,6 +480,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     RecurringTemplate template, {
     required String title,
     required String listId,
+    String? notes,
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -452,6 +489,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     final updated = template.copyWith(
       title: trimmed,
       listId: listId,
+      notes: notes?.trim() ?? template.notes,
       updatedAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _writeLocalEntityEvent(
@@ -478,7 +516,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     final today = _formatTaskDate(effectiveNow);
     var inserted = false;
     await _db.transaction((txn) async {
-      await _seedSystemLists(txn);
+      await _ensureSystemLists(txn);
       final templateRows = await txn.query(
         'recurring_templates',
         where: 'archived = 0 AND repeat_type = ? AND start_date <= ?',
@@ -507,6 +545,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
           templateId: template.id,
           taskDate: today,
           sourceType: TodoSource.recurring,
+          notes: template.notes,
           sortOrder: await _nextTodoSortOrder(txn, template.listId),
         );
         await txn.insert('todos', todo.toDb());
@@ -524,6 +563,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     int? dueAt,
     int? reminderAt,
     bool important = false,
+    String notes = '',
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -542,6 +582,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       dueAt: dueAt,
       reminderAt: reminderAt,
       important: important,
+      notes: notes.trim(),
       sortOrder: sortOrder,
     );
     await _writeLocalTodoEvent('todo.upsert', todo);
@@ -554,17 +595,20 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     required int? reminderAt,
     required String listId,
     bool? important,
+    String? notes,
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
       return;
     }
     final nextImportant = important ?? todo.important;
+    final nextNotes = notes?.trim() ?? todo.notes;
     if (trimmed == todo.title &&
         dueAt == todo.dueAt &&
         reminderAt == todo.reminderAt &&
         listId == todo.listId &&
-        nextImportant == todo.important) {
+        nextImportant == todo.important &&
+        nextNotes == todo.notes) {
       return;
     }
     final sortOrder = listId == todo.listId
@@ -578,6 +622,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         dueAt: dueAt,
         reminderAt: reminderAt,
         important: nextImportant,
+        notes: nextNotes,
         sortOrder: sortOrder,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
@@ -821,7 +866,10 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     Transaction txn,
     TodoEvent event,
   ) async {
-    final incoming = TodoItem.fromJson(event.payload);
+    final parsed = TodoItem.fromJson(event.payload);
+    final incoming = parsed.listId == TodoList.dailyId
+        ? parsed.copyWith(listId: TodoList.inboxId)
+        : parsed;
     final existingRows = await txn.query(
       'todos',
       where: 'id = ?',
@@ -846,6 +894,9 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     TodoEvent event,
   ) async {
     final incoming = TodoList.fromJson(event.payload);
+    if (incoming.id == TodoList.dailyId && incoming.isSystem) {
+      return;
+    }
     final existingRows = await txn.query(
       'todo_lists',
       where: 'id = ?',
@@ -904,7 +955,10 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     Transaction txn,
     TodoEvent event,
   ) async {
-    final incoming = RecurringTemplate.fromJson(event.payload);
+    final parsed = RecurringTemplate.fromJson(event.payload);
+    final incoming = parsed.listId == TodoList.dailyId
+        ? parsed.copyWith(listId: TodoList.inboxId)
+        : parsed;
     final existingRows = await txn.query(
       'recurring_templates',
       where: 'id = ?',

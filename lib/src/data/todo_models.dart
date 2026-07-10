@@ -118,6 +118,7 @@ class RecurringTemplate {
     required this.archived,
     required this.createdAt,
     required this.updatedAt,
+    this.notes = '',
   });
 
   final String id;
@@ -128,6 +129,7 @@ class RecurringTemplate {
   final bool archived;
   final int createdAt;
   final int updatedAt;
+  final String notes;
 
   RecurringTemplate copyWith({
     String? listId,
@@ -136,6 +138,7 @@ class RecurringTemplate {
     String? startDate,
     bool? archived,
     int? updatedAt,
+    String? notes,
   }) {
     return RecurringTemplate(
       id: id,
@@ -146,6 +149,7 @@ class RecurringTemplate {
       archived: archived ?? this.archived,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      notes: notes ?? this.notes,
     );
   }
 
@@ -159,6 +163,7 @@ class RecurringTemplate {
       'archived': archived,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'notes': notes,
     };
   }
 
@@ -172,6 +177,7 @@ class RecurringTemplate {
       archived: json['archived'] as bool,
       createdAt: json['createdAt'] as int,
       updatedAt: json['updatedAt'] as int,
+      notes: json['notes'] as String? ?? '',
     );
   }
 
@@ -185,6 +191,7 @@ class RecurringTemplate {
       'archived': archived ? 1 : 0,
       'created_at': createdAt,
       'updated_at': updatedAt,
+      'notes': notes,
     };
   }
 
@@ -198,6 +205,7 @@ class RecurringTemplate {
       archived: (row['archived'] as int) == 1,
       createdAt: row['created_at'] as int,
       updatedAt: row['updated_at'] as int,
+      notes: row['notes'] as String? ?? '',
     );
   }
 }
@@ -218,6 +226,7 @@ class TodoItem {
     this.dueAt,
     this.reminderAt,
     this.important = false,
+    this.notes = '',
   }) : sortOrder = sortOrder ?? createdAt;
 
   final String id;
@@ -234,6 +243,7 @@ class TodoItem {
   final int? dueAt;
   final int? reminderAt;
   final bool important;
+  final String notes;
 
   TodoItem copyWith({
     String? title,
@@ -248,6 +258,7 @@ class TodoItem {
     Object? dueAt = _notSet,
     Object? reminderAt = _notSet,
     bool? important,
+    String? notes,
   }) {
     return TodoItem(
       id: id,
@@ -270,6 +281,7 @@ class TodoItem {
           ? this.reminderAt
           : reminderAt as int?,
       important: important ?? this.important,
+      notes: notes ?? this.notes,
     );
   }
 
@@ -289,6 +301,7 @@ class TodoItem {
       'dueAt': dueAt,
       'reminderAt': reminderAt,
       'important': important,
+      'notes': notes,
     };
   }
 
@@ -308,6 +321,7 @@ class TodoItem {
       dueAt: json['dueAt'] as int?,
       reminderAt: json['reminderAt'] as int?,
       important: json['important'] as bool? ?? false,
+      notes: json['notes'] as String? ?? '',
     );
   }
 
@@ -327,6 +341,7 @@ class TodoItem {
       'due_at': dueAt,
       'reminder_at': reminderAt,
       'important': important ? 1 : 0,
+      'notes': notes,
     };
   }
 
@@ -346,6 +361,7 @@ class TodoItem {
       dueAt: row['due_at'] as int?,
       reminderAt: row['reminder_at'] as int?,
       important: (row['important'] as int? ?? 0) == 1,
+      notes: row['notes'] as String? ?? '',
     );
   }
 }

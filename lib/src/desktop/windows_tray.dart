@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app_controller.dart';
 
+const _windowIconPath = 'assets/brand/mytodo_taskbar.ico';
 const _trayIconPath = 'assets/brand/mytodo_tray.ico';
 
 Future<void> initializeWindowsWindow() async {
@@ -17,8 +18,8 @@ Future<void> initializeWindowsWindow() async {
 
   await windowManager.ensureInitialized();
   const windowOptions = WindowOptions(
-    size: Size(1080, 760),
-    minimumSize: Size(760, 560),
+    size: Size(1180, 760),
+    minimumSize: Size(900, 560),
     center: true,
     skipTaskbar: false,
     title: 'MyTodo',
@@ -48,7 +49,7 @@ class WindowsTrayController with TrayListener, WindowListener {
     controller.addListener(_queueTrayRefresh);
 
     await windowManager.setPreventClose(true);
-    await windowManager.setIcon(_trayIconPath);
+    await windowManager.setIcon(_windowIconPath);
     await trayManager.setIcon(_trayIconPath);
     await _refreshTrayPresentation();
   }

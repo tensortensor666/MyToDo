@@ -1,6 +1,6 @@
 import '../data/todo_models.dart';
 
-enum TodoViewFilter { active, overdue, completed }
+enum TodoViewFilter { active, overdue, completed, all }
 
 class TodoViewCounts {
   const TodoViewCounts({
@@ -25,6 +25,7 @@ List<TodoItem> filterTodosByView(
           TodoViewFilter.active => !todo.completed && !isTodoOverdue(todo, now),
           TodoViewFilter.overdue => !todo.completed && isTodoOverdue(todo, now),
           TodoViewFilter.completed => todo.completed,
+          TodoViewFilter.all => true,
         };
       })
       .toList(growable: false);

@@ -59,6 +59,10 @@ void main() {
       ).map((todo) => todo.id),
       ['completed'],
     );
+    expect(
+      filterTodosByView(todos, TodoViewFilter.all, now).map((todo) => todo.id),
+      ['current', 'overdue', 'completed'],
+    );
   });
 
   test('todo view counts match exclusive view filters', () {

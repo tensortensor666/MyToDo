@@ -11,12 +11,13 @@ void main() {
       createdAt: 1000,
       updatedAt: 2000,
       sortOrder: 1500,
-      listId: TodoList.dailyId,
+      listId: TodoList.inboxId,
       templateId: 'template-1',
       taskDate: '2026-06-30',
       sourceType: TodoSource.recurring,
       dueAt: 3000,
       reminderAt: 2500,
+      notes: '- buy oat milk\n**urgent**',
     );
 
     expect(TodoItem.fromJson(todo.toJson()).toJson(), todo.toJson());
@@ -34,6 +35,7 @@ void main() {
     });
 
     expect(todo.sortOrder, 1234);
+    expect(todo.notes, isEmpty);
     expect(TodoItem.fromDb(todo.toDb()).sortOrder, 1234);
   });
 
@@ -81,6 +83,7 @@ void main() {
       archived: false,
       createdAt: 100,
       updatedAt: 200,
+      notes: '- every morning',
     );
 
     expect(TodoList.fromJson(list.toJson()).toJson(), list.toJson());
