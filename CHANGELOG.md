@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.9 - 2026-07-10
+
+- Updated the taskbar, tray, and app icons from the new design.
+- Rebuilt Windows icon files as PNG-compressed entries so the resource compiler accepts them.
+
 ## 1.4.5 - 2026-07-07
 
 - Added an inline star button on each todo item to mark or unmark important tasks.
