@@ -23,6 +23,8 @@ Future<void> initializeWindowsWindow() async {
     center: true,
     skipTaskbar: false,
     title: 'MyTodo',
+    titleBarStyle: TitleBarStyle.hidden,
+    windowButtonVisibility: false,
   );
   await windowManager.waitUntilReadyToShow(windowOptions, () {
     unawaited(windowManager.show());

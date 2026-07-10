@@ -5,8 +5,8 @@ class AppTheme {
   AppTheme._();
 
   /// 主强调色
-  static const Color accentColor = Color(0xFF4B6EAF);
-  static const Color _lightTextColor = Color(0xFF1F1F1F);
+  static const Color accentColor = Color(0xFFC96442);
+  static const Color _lightTextColor = Color(0xFF141413);
   static const Color _darkTextColor = Color(0xFFF3F3F3);
 
   /// 浅色主题

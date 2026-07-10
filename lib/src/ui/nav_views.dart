@@ -23,18 +23,18 @@ class TodoNavEntry {
   bool get isVirtual => list == null;
 }
 
-const Color kMsPrimary = Color(0xFF4B6EAF);
-const Color kMsImportantStar = Color(0xFF4B6EAF);
+const Color kMsPrimary = Color(0xFFC96442);
+const Color kMsImportantStar = Color(0xFFC96442);
 const List<Color> kListColorPalette = [
-  Color(0xFF4B6EAF),
-  Color(0xFFE0463B),
-  Color(0xFFF08A24),
-  Color(0xFFE2B53A),
-  Color(0xFF3FA864),
-  Color(0xFF1FA8A0),
-  Color(0xFF8E6FCB),
-  Color(0xFFD36BA8),
-  Color(0xFF6B7280),
+  Color(0xFFC96442),
+  Color(0xFF5F7F62),
+  Color(0xFFB53333),
+  Color(0xFFEAB308),
+  Color(0xFF17A34A),
+  Color(0xFF3D3D3A),
+  Color(0xFF87867F),
+  Color(0xFFE8E6DC),
+  Color(0xFF141413),
 ];
 
 Color accentForList(TodoList list) {

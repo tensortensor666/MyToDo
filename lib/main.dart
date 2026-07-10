@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:fluent_ui/fluent_ui.dart' as fluent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart' as window_manager;
 
 import 'src/app_controller.dart';
 import 'src/data/todo_models.dart';
@@ -18,16 +19,20 @@ import 'src/ui/reorder_items.dart';
 import 'src/ui/todo_view_filter.dart';
 import 'src/update/update_page.dart';
 
-const Color _appAccent = Color(0xFF4268D7);
-const Color _appBackground = Color(0xFFF7FAFC);
-const Color _appSurface = Color(0xFFFFFFFF);
-const Color _appSurfaceRaised = Color(0xFFFBFCFE);
-const Color _appForeground = Color(0xFF17202A);
-const Color _appMuted = Color(0xFF687586);
-const Color _appBorder = Color(0xFFDDE6EF);
-const Color _appDanger = Color(0xFFD84832);
-const Color _appSuccess = Color(0xFF2F9E68);
-const String _appVersionLabel = 'v1.4.7';
+const Color _appAccent = Color(0xFFC96442);
+const Color _appAccentOn = Color(0xFFFAF9F5);
+const Color _appBackground = Color(0xFFF5F4ED);
+const Color _appSurface = Color(0xFFFAF9F5);
+const Color _appSurfaceWarm = Color(0xFFE8E6DC);
+const Color _appForeground = Color(0xFF141413);
+const Color _appForegroundSoft = Color(0xFF3D3D3A);
+const Color _appMuted = Color(0xFF5E5D59);
+const Color _appMeta = Color(0xFF87867F);
+const Color _appBorder = Color(0xFFF0EEE6);
+const Color _appBorderSoft = Color(0xFFE8E6DC);
+const Color _appDanger = Color(0xFFB53333);
+const Color _appSuccess = Color(0xFF17A34A);
+const String _appVersionLabel = 'v1.4.8';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -505,62 +510,281 @@ class _DesktopTodoShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
+    return _DesktopWindowFrame(
+      child: Row(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            width: sidebarExpanded ? 288 : 84,
+            child: _DesktopSidebar(
+              entries: entries,
+              selectedEntry: selectedEntry,
+              controller: controller,
+              expanded: sidebarExpanded,
+              syncing: syncing,
+              onToggle: onToggleSidebar,
+              onSelected: onSelected,
+              onAddList: onAddList,
+              onDeleteList: onDeleteList,
+              onSearch: onSearch,
+              onSync: onSync,
+              onSyncPage: onSyncPage,
+            ),
+          ),
+          const VerticalDivider(width: 1, color: _appBorderSoft),
+          Expanded(
+            child: _FluentMainContent(
+              entry: selectedEntry,
+              controller: controller,
+              compact: false,
+              syncing: syncing,
+              onAddTodo: onAddTodo,
+              onSearch: onSearch,
+              onSync: onSync,
+              onSettings: onSyncPage,
+              onRefresh: onRefresh,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopWindowFrame extends StatefulWidget {
+  const _DesktopWindowFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_DesktopWindowFrame> createState() => _DesktopWindowFrameState();
+}
+
+class _DesktopWindowFrameState extends State<_DesktopWindowFrame>
+    with window_manager.WindowListener {
+  bool _isMaximized = false;
+
+  bool get _showCustomTitleBar => Platform.isWindows;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_showCustomTitleBar) {
+      window_manager.windowManager.addListener(this);
+      unawaited(_syncMaximizedState());
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_showCustomTitleBar) {
+      window_manager.windowManager.removeListener(this);
+    }
+    super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() {
+    if (mounted) {
+      setState(() => _isMaximized = true);
+    }
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    if (mounted) {
+      setState(() => _isMaximized = false);
+    }
+  }
+
+  Future<void> _syncMaximizedState() async {
+    final maximized = await window_manager.windowManager.isMaximized();
+    if (mounted) {
+      setState(() => _isMaximized = maximized);
+    }
+  }
+
+  Future<void> _toggleMaximize() async {
+    final maximized = await window_manager.windowManager.isMaximized();
+    if (maximized) {
+      await window_manager.windowManager.unmaximize();
+    } else {
+      await window_manager.windowManager.maximize();
+    }
+    await _syncMaximizedState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = 0.0;
+    const padding = EdgeInsets.zero;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: padding,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: _appSurface.withValues(alpha: 0.96),
-          border: Border.all(color: _appBorder),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: _appForeground.withValues(alpha: 0.05),
-              blurRadius: 28,
-              offset: const Offset(0, 14),
-            ),
-          ],
+          color: _appSurface,
+          border: Border.all(
+            color: _showCustomTitleBar && _isMaximized
+                ? Colors.transparent
+                : _appBorder,
+          ),
+          borderRadius: BorderRadius.circular(radius),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: Row(
+          borderRadius: BorderRadius.circular(radius),
+          child: Column(
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                width: sidebarExpanded ? 292 : 86,
-                child: _DesktopSidebar(
-                  entries: entries,
-                  selectedEntry: selectedEntry,
-                  controller: controller,
-                  expanded: sidebarExpanded,
-                  syncing: syncing,
-                  onToggle: onToggleSidebar,
-                  onSelected: onSelected,
-                  onAddList: onAddList,
-                  onDeleteList: onDeleteList,
-                  onSearch: onSearch,
-                  onSync: onSync,
-                  onSyncPage: onSyncPage,
+              if (_showCustomTitleBar)
+                _DesktopWindowTitleBar(
+                  isMaximized: _isMaximized,
+                  onToggleMaximize: _toggleMaximize,
                 ),
-              ),
-              const VerticalDivider(width: 1, color: _appBorder),
-              Expanded(
-                child: _FluentMainContent(
-                  entry: selectedEntry,
-                  controller: controller,
-                  compact: false,
-                  syncing: syncing,
-                  onAddTodo: onAddTodo,
-                  onSearch: onSearch,
-                  onSync: onSync,
-                  onSettings: onSyncPage,
-                  onRefresh: onRefresh,
-                ),
-              ),
+              Expanded(child: widget.child),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _DesktopWindowTitleBar extends StatelessWidget {
+  const _DesktopWindowTitleBar({
+    required this.isMaximized,
+    required this.onToggleMaximize,
+  });
+
+  final bool isMaximized;
+  final Future<void> Function() onToggleMaximize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: Color.lerp(_appSurface, _appSurfaceWarm, 0.18),
+        border: const Border(bottom: BorderSide(color: _appBorder)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: window_manager.DragToMoveArea(
+              child: SizedBox(
+                height: 44,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      _AppMark(size: 30),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'MyTodo',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _appForeground,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          _WindowControlButton(
+            tooltip: '最小化',
+            icon: Icons.minimize,
+            onTap: () => unawaited(window_manager.windowManager.minimize()),
+          ),
+          _WindowControlButton(
+            tooltip: isMaximized ? '还原' : '最大化',
+            icon: isMaximized ? Icons.filter_none : Icons.crop_square,
+            onTap: () => unawaited(onToggleMaximize()),
+          ),
+          _WindowControlButton(
+            tooltip: '关闭',
+            icon: Icons.close,
+            danger: true,
+            onTap: () => unawaited(window_manager.windowManager.close()),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WindowControlButton extends StatefulWidget {
+  const _WindowControlButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  State<_WindowControlButton> createState() => _WindowControlButtonState();
+}
+
+class _WindowControlButtonState extends State<_WindowControlButton> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hoveredColor = widget.danger ? _appDanger : _appSurfaceWarm;
+    final iconColor = _hovering
+        ? widget.danger
+              ? _appAccentOn
+              : _appForeground
+        : _appMeta;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: Material(
+          color: _hovering ? hoveredColor : Colors.transparent,
+          child: InkWell(
+            onTap: widget.onTap,
+            child: Container(
+              width: 46,
+              height: 44,
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: _appBorder.withValues(alpha: 0.72)),
+                ),
+              ),
+              alignment: Alignment.center,
+              child: Icon(widget.icon, size: 15, color: iconColor),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AppMark extends StatelessWidget {
+  const _AppMark({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/brand/mytodo_taskbar.png',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
     );
   }
 }
@@ -599,10 +823,10 @@ class _DesktopSidebar extends StatelessWidget {
     final smartEntries = entries.where((entry) => entry.isVirtual).toList();
     final listEntries = entries.where((entry) => !entry.isVirtual).toList();
     return Container(
-      color: _appSurfaceRaised,
+      color: Color.lerp(_appSurface, _appSurfaceWarm, 0.44),
       padding: expanded
-          ? const EdgeInsets.all(18)
-          : const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ? const EdgeInsets.all(24)
+          : const EdgeInsets.symmetric(horizontal: 14, vertical: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -681,16 +905,6 @@ class _DesktopBrandRow extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(11),
-            child: Image.asset(
-              'assets/brand/mytodo_taskbar.png',
-              width: 34,
-              height: 34,
-              fit: BoxFit.cover,
-            ),
-          ),
-          const SizedBox(height: 10),
           IconButton(
             tooltip: '展开菜单',
             onPressed: onToggle,
@@ -701,31 +915,18 @@ class _DesktopBrandRow extends StatelessWidget {
     }
     return Row(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(11),
-          child: Image.asset(
-            'assets/brand/mytodo_taskbar.png',
-            width: 34,
-            height: 34,
-            fit: BoxFit.cover,
-          ),
-        ),
-        if (expanded) ...[
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              'MyTodo',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _appForeground,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-              ),
+        const Expanded(
+          child: Text(
+            'MyTodo',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: _appForeground,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
             ),
           ),
-        ] else
-          const Spacer(),
+        ),
         IconButton(
           tooltip: expanded ? '收起侧边栏' : '展开侧边栏',
           onPressed: onToggle,
@@ -750,19 +951,26 @@ class _DesktopSearchBox extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          constraints: const BoxConstraints(minHeight: 42),
+          constraints: const BoxConstraints(minHeight: 44),
           padding: EdgeInsets.symmetric(horizontal: expanded ? 12 : 0),
           decoration: BoxDecoration(
             color: _appSurface,
-            border: Border.all(color: _appBorder),
+            border: Border.all(color: _appBorderSoft),
             borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: _appSurfaceWarm.withValues(alpha: 0.40),
+                blurRadius: 0,
+                spreadRadius: 1,
+              ),
+            ],
           ),
           child: Row(
             mainAxisAlignment: expanded
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
             children: [
-              const Icon(Icons.search, size: 18, color: _appMuted),
+              const Icon(Icons.search, size: 18, color: _appMeta),
               if (expanded) ...[
                 const SizedBox(width: 10),
                 Text(
@@ -792,9 +1000,10 @@ class _NavSectionTitle extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: _appMuted,
+          color: _appMeta,
           fontWeight: FontWeight.w700,
-          letterSpacing: 0.6,
+          fontSize: 10,
+          letterSpacing: 0.5,
         ),
       ),
     );
@@ -822,7 +1031,9 @@ class _DesktopNavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final foreground = selected ? _appForeground : _appMuted;
     final tile = Material(
-      color: selected ? _appAccent.withValues(alpha: 0.12) : Colors.transparent,
+      color: selected
+          ? Color.lerp(_appSurface, _appSurfaceWarm, 0.72)
+          : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
@@ -845,7 +1056,7 @@ class _DesktopNavTile extends StatelessWidget {
                   Icon(
                     entry.icon,
                     size: expanded ? 19 : 20,
-                    color: selected ? _appAccent : entry.accent,
+                    color: selected ? _appAccent : _appMuted,
                   ),
                   if (expanded) ...[
                     const SizedBox(width: 10),
@@ -919,14 +1130,14 @@ class _CollapsedCountBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
         color: _appSurface,
-        border: Border.all(color: _appBorder),
+        border: Border.all(color: _appBorderSoft),
         borderRadius: BorderRadius.circular(999),
       ),
       alignment: Alignment.center,
       child: Text(
         count.toString(),
         style: const TextStyle(
-          color: _appMuted,
+          color: _appMeta,
           fontSize: 9,
           height: 1,
           fontWeight: FontWeight.w800,
@@ -971,7 +1182,7 @@ class _DesktopActionNavTile extends StatelessWidget {
                 ? MainAxisAlignment.start
                 : MainAxisAlignment.center,
             children: [
-              Icon(icon, size: expanded ? 19 : 20, color: _appMuted),
+              Icon(icon, size: expanded ? 19 : 20, color: _appMeta),
               if (expanded) ...[
                 const SizedBox(width: 10),
                 Expanded(
@@ -988,7 +1199,7 @@ class _DesktopActionNavTile extends StatelessWidget {
                 Text(
                   trailing,
                   style: const TextStyle(
-                    color: _appMuted,
+                    color: _appMeta,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1023,14 +1234,14 @@ class _SidebarCountBadge extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 24),
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: _appForeground.withValues(alpha: 0.06),
+        color: _appSurfaceWarm.withValues(alpha: 0.74),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         count.toString(),
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: _appMuted,
+          color: _appMeta,
           fontSize: 12,
           fontWeight: FontWeight.w800,
         ),
@@ -1216,7 +1427,7 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
       backgroundColor: _appBackground,
       drawer: Drawer(
         width: drawerWidth,
-        backgroundColor: const Color(0xFFF7FAF9),
+        backgroundColor: _appBackground,
         shape: const RoundedRectangleBorder(),
         child: SafeArea(
           child: _CompactNavigationDrawer(
@@ -1285,7 +1496,7 @@ class _MobileFab extends StatelessWidget {
       heroTag: 'mobile-add-todo',
       onPressed: onTap,
       backgroundColor: _appAccent,
-      foregroundColor: Colors.white,
+      foregroundColor: _appAccentOn,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: const Icon(Icons.add),
     );
@@ -1424,7 +1635,7 @@ class _CompactNavigationDrawer extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: const Color(0xFF123F3B),
+              color: _appForeground,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -1532,7 +1743,7 @@ class _CompactNavigationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = selected ? _appAccent : const Color(0xFF274B47);
+    final foreground = selected ? _appAccent : _appForegroundSoft;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: ListTile(
@@ -1619,11 +1830,11 @@ class _DrawerActionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       enabled: enabled,
-      leading: Icon(icon, color: const Color(0xFF0E4D49)),
+      leading: Icon(icon, color: _appAccent),
       title: Text(
         label,
         style: const TextStyle(
-          color: Color(0xFF123F3B),
+          color: _appForeground,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -1651,7 +1862,7 @@ class _DrawerCountBadge extends StatelessWidget {
         count.toString(),
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: Colors.white,
+          color: _appAccentOn,
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
@@ -1857,7 +2068,7 @@ class _TodoContentPageState extends State<_TodoContentPage> {
     return Padding(
       padding: widget.compact
           ? const EdgeInsets.fromLTRB(16, 0, 16, 0)
-          : const EdgeInsets.fromLTRB(28, 26, 28, 20),
+          : const EdgeInsets.fromLTRB(44, 42, 44, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1929,8 +2140,9 @@ class _DesktopContentToolbar extends StatelessWidget {
                 Text(
                   entry.name,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontSize: 42,
                     color: _appForeground,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 0,
                   ),
                 ),
@@ -2160,7 +2372,7 @@ class _TodoOverview extends StatelessWidget {
         label: '完成',
         value: counts.completed,
         selected: selectedFilter == TodoViewFilter.completed,
-        color: const Color(0xFF2E7D32),
+        color: _appSuccess,
         compact: compact,
         onTap: () => onFilterChanged(TodoViewFilter.completed),
       ),
@@ -2171,7 +2383,7 @@ class _TodoOverview extends StatelessWidget {
           label: '全部',
           value: todos.length,
           selected: selectedFilter == TodoViewFilter.all,
-          color: _appMuted,
+          color: _appForegroundSoft,
           compact: compact,
           onTap: () => onFilterChanged(TodoViewFilter.all),
         ),
@@ -2210,8 +2422,10 @@ class _OverviewTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final background = selected ? color.withValues(alpha: 0.12) : _appSurface;
-    final borderColor = selected ? color.withValues(alpha: 0.42) : _appBorder;
+    final background = selected
+        ? Color.lerp(_appSurface, _appSurfaceWarm, 0.66)
+        : _appSurface;
+    const borderColor = _appBorderSoft;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2227,7 +2441,7 @@ class _OverviewTile extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: background,
-            border: Border.all(color: borderColor, width: selected ? 1.4 : 1),
+            border: Border.all(color: borderColor),
             borderRadius: BorderRadius.circular(12),
           ),
           child: compact
@@ -2441,7 +2655,7 @@ class _TodoTile extends StatelessWidget {
     final background = todo.deleted
         ? scheme.errorContainer.withValues(alpha: 0.22)
         : todo.completed
-        ? _appSurfaceRaised
+        ? Color.lerp(_appSurface, _appSurfaceWarm, 0.84)!
         : _appSurface;
     return Material(
       color: Colors.transparent,
@@ -2562,7 +2776,7 @@ class _TaskCheckButton extends StatelessWidget {
           child: Icon(
             Icons.check,
             size: 18,
-            color: completed ? Colors.white : Colors.transparent,
+            color: completed ? _appAccentOn : Colors.transparent,
           ),
         ),
       ),
@@ -2698,7 +2912,7 @@ class _TodoMetadata extends StatelessWidget {
         _MetaChip(
           icon: todo.completed ? Icons.check_circle_outline : Icons.update,
           label: todo.completed ? '已完成' : _formatShortDateTime(todo.updatedAt),
-          color: todo.completed ? const Color(0xFF2E7D32) : null,
+          color: todo.completed ? _appSuccess : null,
         ),
       );
     }
@@ -3946,9 +4160,7 @@ class _SupabaseSyncSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final config = controller.supabaseSync.config;
     final scheme = Theme.of(context).colorScheme;
-    final enabledColor = config.enabled
-        ? const Color(0xFF2E7D32)
-        : scheme.onSurfaceVariant;
+    final enabledColor = config.enabled ? _appSuccess : scheme.onSurfaceVariant;
     return _SyncSection(
       title: 'Supabase 远程同步',
       icon: Icons.cloud_sync_outlined,
