@@ -6,9 +6,13 @@ MyTodo is a local-first Flutter TODO app for Windows and Android. It stores data
 
 ## Screenshots
 
-| Windows | Android |
-| --- | --- |
-| ![MyTodo running on Windows](docs/screenshots/windows-home.png) | ![MyTodo running on Android](docs/screenshots/android-home.png) |
+### Windows
+
+![MyTodo on Windows](docs/screenshots/windows.png)
+
+### Android
+
+![MyTodo on Android](docs/screenshots/android-home.png)
 
 ## Features
 
