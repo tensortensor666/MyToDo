@@ -34,8 +34,8 @@ const Color _appBorderSoft = Color(0xFFE8E6DC);
 const Color _appWarn = Color(0xFFEAB308);
 const Color _appDanger = Color(0xFFB53333);
 const Color _appSuccess = Color(0xFF17A34A);
-const String _appVersionLabel = 'v1.4.9';
-const String _appBuildLabel = '构建 2026.07.09';
+const String _appVersionLabel = 'v1.5.0';
+const String _appBuildLabel = '构建 2026.07.12';
 const String _appDistributionLabel = 'Windows / Android 同步版';
 
 Future<void> main() async {

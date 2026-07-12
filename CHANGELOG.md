@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0 - 2026-07-12
+
+- Added savings plans with deposits, withdrawals, progress tracking, local persistence, and cross-device sync.
+- Refreshed the Windows and Android interfaces to match the latest prototypes.
+- Reworked Android navigation around a sidebar, compact task filters, and streamlined task cards.
+- Consolidated Supabase sync configuration and software updates into the settings surface.
+- Added first-run prototype data and expanded model, store, migration, and sync regression coverage.
+
 ## 1.4.9 - 2026-07-10
 
 - Updated the taskbar, tray, and app icons from the new design.
