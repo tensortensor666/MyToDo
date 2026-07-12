@@ -125,4 +125,30 @@ void main() {
     expect(TodoEvent.fromJson(event.toJson()).toJson(), event.toJson());
     expect(TodoEvent.fromDb(event.toDb()).toJson(), event.toJson());
   });
+
+  test('todo item persists progress and defaults to 0 for old payloads', () {
+    const withProgress = TodoItem(
+      id: 'todo-prog',
+      title: 'Ship feature',
+      completed: false,
+      deleted: false,
+      createdAt: 1000,
+      updatedAt: 2000,
+      progress: 35,
+    );
+    expect(withProgress.progress, 35);
+    expect(TodoItem.fromJson(withProgress.toJson()).progress, 35);
+    expect(TodoItem.fromDb(withProgress.toDb()).progress, 35);
+
+    final fromOldPayload = TodoItem.fromJson(const {
+      'id': 'todo-old-prog',
+      'title': 'Old payload',
+      'completed': false,
+      'deleted': false,
+      'createdAt': 1234,
+      'updatedAt': 2234,
+    });
+    expect(fromOldPayload.progress, 0);
+    expect(TodoItem.fromDb(fromOldPayload.toDb()).progress, 0);
+  });
 }

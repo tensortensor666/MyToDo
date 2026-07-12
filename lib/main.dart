@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart' as window_manager;
 
 import 'src/app_controller.dart';
 import 'src/data/todo_models.dart';
+import 'src/data/savings_models.dart';
 import 'src/desktop/windows_tray.dart';
 import 'src/search/history_search.dart';
 import 'src/sync/supabase_sync_service.dart';
@@ -30,12 +31,24 @@ const Color _appMuted = Color(0xFF5E5D59);
 const Color _appMeta = Color(0xFF87867F);
 const Color _appBorder = Color(0xFFF0EEE6);
 const Color _appBorderSoft = Color(0xFFE8E6DC);
+const Color _appWarn = Color(0xFFEAB308);
 const Color _appDanger = Color(0xFFB53333);
 const Color _appSuccess = Color(0xFF17A34A);
-const String _appVersionLabel = 'v1.4.8';
+const String _appVersionLabel = 'v1.4.9';
+const String _appBuildLabel = '构建 2026.07.09';
+const String _appDistributionLabel = 'Windows / Android 同步版';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: _appBackground,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+      systemNavigationBarColor: _appBackground,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
   await initializeWindowsWindow();
   runApp(const MyTodoApp());
 }
@@ -219,7 +232,6 @@ class _TodoHomeState extends State<TodoHome> {
                         onAddList: _showAddListDialog,
                         onDeleteList: _deleteTodoList,
                         onSearch: _openHistorySearch,
-                        onUpdate: _openUpdatePage,
                         onSync: _syncingFromHome
                             ? null
                             : () => unawaited(_syncFromHome(showResult: true)),
@@ -343,18 +355,226 @@ class _TodoHomeState extends State<TodoHome> {
     ).showSnackBar(SnackBar(content: Text('已删除清单“${list.name}”')));
   }
 
-  Future<void> _openSyncPage() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => RemoteSyncPage(controller: widget.controller),
-      ),
+  Future<void> _showSettingsSurface(BuildContext context) async {
+    final size = MediaQuery.sizeOf(context);
+    final compact = size.width < 760;
+    if (compact) {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: _appSurface,
+        barrierColor: _appForeground.withValues(alpha: 0.18),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          return PopScope(
+            canPop: true,
+            child: DraggableScrollableSheet(
+              initialChildSize: 0.85,
+              minChildSize: 0.45,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, scrollController) {
+                return _SettingsSheet(
+                  scrollController: scrollController,
+                  controller: widget.controller,
+                  onCheckUpdate: _openUpdatePage,
+                  onSaveSyncConfig: _saveSyncConfig,
+                  onSyncRemote: _syncRemote,
+                  onTestConnection: _testSupabase,
+                );
+              },
+            ),
+          );
+        },
+      );
+      return;
+    }
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close settings',
+      barrierColor: _appForeground.withValues(alpha: 0.18),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (dialogContext, animation, _) {
+        final panelWidth = math.min(500.0, math.max(360.0, size.width - 24));
+        final panelHeight = math.max(0.0, size.height - 24);
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: panelWidth,
+                  height: panelHeight,
+                  decoration: BoxDecoration(
+                    color: _appSurface,
+                    border: Border.all(color: _appBorder),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.14),
+                        blurRadius: 34,
+                        offset: const Offset(0, 18),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 2),
+                                  child: _KickerText('设置'),
+                                ),
+                                Text(
+                                  '设置与同步',
+                                  style: Theme.of(dialogContext)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
+                                        color: _appForeground,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close),
+                            color: _appMuted,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          child: _SettingsSurface(
+                            controller: widget.controller,
+                            onCheckUpdate: () {
+                              Navigator.of(dialogContext).pop();
+                              unawaited(_openUpdatePage());
+                            },
+                            onSaveSyncConfig: _saveSyncConfig,
+                            onSyncRemote: () async {
+                              Navigator.of(dialogContext).pop();
+                              unawaited(_syncRemote());
+                            },
+                            onTestConnection: () async {
+                              unawaited(_testSupabase());
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, _, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(1, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        );
+      },
     );
+  }
+
+  /// 旧版保持可走（已废弃），现在调用 sheet 形态。
+  Future<void> _openSyncPage() async {
+    if (!mounted) return;
+    await _showSettingsSurface(context);
   }
 
   Future<void> _openUpdatePage() async {
     await Navigator.of(
       context,
     ).push<void>(MaterialPageRoute(builder: (_) => const UpdatePage()));
+  }
+
+  Future<void> _syncRemote() async {
+    if (!widget.controller.supabaseSync.config.canSync) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('远程同步未配置，无法同步')));
+      return;
+    }
+    try {
+      await widget.controller.supabaseSync.syncNow();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('远程同步完成')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('同步失败: $error')));
+    }
+  }
+
+  Future<void> _testSupabase() async {
+    try {
+      await widget.controller.supabaseSync.testConnection();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Supabase 连接正常')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Supabase 连接失败: $error')));
+    }
+  }
+
+  Future<void> _saveSyncConfig(_SettingsSyncDraft draft) async {
+    try {
+      await widget.controller.supabaseSync.saveConfig(
+        SupabaseSyncConfig(
+          enabled: draft.enabled,
+          autoSync: draft.autoSync,
+          restUrl: draft.restUrl,
+          publishableKey: draft.publishableKey,
+          tableName: draft.tableName,
+          syncSpace: draft.syncSpace,
+        ),
+      );
+      await widget.controller.store.updateDeviceName(draft.deviceName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('同步配置已保存')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存失败: $error')));
+    }
   }
 
   Future<void> _syncFromHome({bool showResult = false}) async {
@@ -405,7 +625,6 @@ class _FluentTodoNavigationLayout extends StatefulWidget {
     required this.onAddList,
     required this.onDeleteList,
     required this.onSearch,
-    required this.onUpdate,
     required this.onSync,
     required this.onSyncPage,
     required this.onRefresh,
@@ -421,7 +640,6 @@ class _FluentTodoNavigationLayout extends StatefulWidget {
   final VoidCallback onAddList;
   final Future<void> Function(TodoNavEntry entry) onDeleteList;
   final VoidCallback onSearch;
-  final VoidCallback onUpdate;
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final Future<void> Function() onRefresh;
@@ -448,7 +666,6 @@ class _FluentTodoNavigationLayoutState
         onAddList: widget.onAddList,
         onDeleteList: widget.onDeleteList,
         onSearch: widget.onSearch,
-        onUpdate: widget.onUpdate,
         onSync: widget.onSync,
         onSyncPage: widget.onSyncPage,
         onRefresh: widget.onRefresh,
@@ -542,7 +759,6 @@ class _DesktopTodoShell extends StatelessWidget {
               onAddTodo: onAddTodo,
               onSearch: onSearch,
               onSync: onSync,
-              onSettings: onSyncPage,
               onRefresh: onRefresh,
             ),
           ),
@@ -820,7 +1036,10 @@ class _DesktopSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final smartEntries = entries.where((entry) => entry.isVirtual).toList();
+    final smartEntries = entries
+        .where((entry) => entry.isVirtual && !entry.isSavingsView)
+        .toList();
+    final savingsEntry = entries.where((entry) => entry.isSavingsView).toList();
     final listEntries = entries.where((entry) => !entry.isVirtual).toList();
     return Container(
       color: Color.lerp(_appSurface, _appSurfaceWarm, 0.44),
@@ -869,6 +1088,14 @@ class _DesktopSidebar extends StatelessWidget {
                     onDelete: entry.isCustomList
                         ? () => unawaited(onDeleteList(entry))
                         : null,
+                  ),
+                for (final entry in savingsEntry)
+                  _DesktopNavTile(
+                    entry: entry,
+                    selected: entry.id == selectedEntry.id,
+                    count: controller.store.savings.length,
+                    expanded: expanded,
+                    onTap: () => onSelected(entry.id),
                   ),
                 SizedBox(height: expanded ? 16 : 8),
                 if (expanded) const _NavSectionTitle('系统'),
@@ -1397,7 +1624,6 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
     required this.onAddList,
     required this.onDeleteList,
     required this.onSearch,
-    required this.onUpdate,
     required this.onSync,
     required this.onSyncPage,
     required this.onRefresh,
@@ -1412,7 +1638,6 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
   final VoidCallback onAddList;
   final Future<void> Function(TodoNavEntry entry) onDeleteList;
   final VoidCallback onSearch;
-  final VoidCallback onUpdate;
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final Future<void> Function() onRefresh;
@@ -1421,7 +1646,7 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final drawerWidth = math.min(
       MediaQuery.sizeOf(context).width * 0.82,
-      280.0,
+      292.0,
     );
     return Scaffold(
       backgroundColor: _appBackground,
@@ -1435,11 +1660,8 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
             selectedEntry: selectedEntry,
             controller: controller,
             onSelected: onSelected,
-            onAddTodo: onAddTodo,
             onAddList: onAddList,
             onDeleteList: onDeleteList,
-            onSearch: onSearch,
-            onUpdate: onUpdate,
             onSync: onSync,
             onSyncPage: onSyncPage,
             syncing: syncing,
@@ -1458,24 +1680,13 @@ class _CompactTodoDrawerLayout extends StatelessWidget {
                 onAddTodo: onAddTodo,
                 onSearch: onSearch,
                 onSync: onSync,
-                onSettings: onSyncPage,
                 onRefresh: onRefresh,
                 onOpenNavigation: Scaffold.of(context).openDrawer,
               ),
               Positioned(
                 right: 24,
-                bottom: 92,
+                bottom: 24,
                 child: _MobileFab(onTap: onAddTodo),
-              ),
-              Positioned(
-                left: 14,
-                right: 14,
-                bottom: 14,
-                child: _MobileBottomNav(
-                  entries: entries.where((entry) => entry.isVirtual).toList(),
-                  selectedEntry: selectedEntry,
-                  onSelected: onSelected,
-                ),
               ),
             ],
           );
@@ -1492,103 +1703,15 @@ class _MobileFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
-      heroTag: 'mobile-add-todo',
-      onPressed: onTap,
-      backgroundColor: _appAccent,
-      foregroundColor: _appAccentOn,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: const Icon(Icons.add),
-    );
-  }
-}
-
-class _MobileBottomNav extends StatelessWidget {
-  const _MobileBottomNav({
-    required this.entries,
-    required this.selectedEntry,
-    required this.onSelected,
-  });
-
-  final List<TodoNavEntry> entries;
-  final TodoNavEntry selectedEntry;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = entries.take(3).toList();
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: _appSurface.withValues(alpha: 0.96),
-        border: Border.all(color: _appBorder),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: _appForeground.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Row(
-          children: [
-            for (final entry in visible)
-              Expanded(
-                child: _MobileBottomNavItem(
-                  entry: entry,
-                  selected: entry.id == selectedEntry.id,
-                  onTap: () => onSelected(entry.id),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MobileBottomNavItem extends StatelessWidget {
-  const _MobileBottomNavItem({
-    required this.entry,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final TodoNavEntry entry;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected ? _appAccent : _appMuted;
-    return Material(
-      color: selected ? _appAccent.withValues(alpha: 0.12) : Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: SizedBox(
-          height: 48,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(entry.icon, size: 18, color: color),
-              const SizedBox(height: 3),
-              Text(
-                entry.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
+    return SizedBox.square(
+      dimension: 58,
+      child: FloatingActionButton(
+        heroTag: 'mobile-add-todo',
+        onPressed: onTap,
+        backgroundColor: _appAccent,
+        foregroundColor: _appAccentOn,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -1600,11 +1723,8 @@ class _CompactNavigationDrawer extends StatelessWidget {
     required this.selectedEntry,
     required this.controller,
     required this.onSelected,
-    required this.onAddTodo,
     required this.onAddList,
     required this.onDeleteList,
-    required this.onSearch,
-    required this.onUpdate,
     required this.onSync,
     required this.onSyncPage,
     required this.syncing,
@@ -1614,37 +1734,89 @@ class _CompactNavigationDrawer extends StatelessWidget {
   final TodoNavEntry selectedEntry;
   final AppController controller;
   final ValueChanged<String> onSelected;
-  final VoidCallback onAddTodo;
   final VoidCallback onAddList;
   final Future<void> Function(TodoNavEntry entry) onDeleteList;
-  final VoidCallback onSearch;
-  final VoidCallback onUpdate;
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final bool syncing;
 
   @override
   Widget build(BuildContext context) {
+    final smartEntries = entries
+        .where((entry) => entry.isVirtual && !entry.isSavingsView)
+        .toList();
+    final savingsEntry = entries.where((entry) => entry.isSavingsView).toList();
+    final listEntries = entries.where((entry) => !entry.isVirtual).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
-          child: Text(
-            'MyTodo',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: _appForeground,
-              fontWeight: FontWeight.w800,
-            ),
+          padding: const EdgeInsets.fromLTRB(20, 18, 10, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '导航',
+                      style: TextStyle(
+                        color: _appMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'MyTodo',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: _appForeground,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭侧边栏',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ],
           ),
         ),
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             children: [
-              for (final entry in entries)
+              const _MobileNavSectionTitle('智能视图'),
+              for (final entry in smartEntries)
+                _CompactNavigationTile(
+                  entry: entry,
+                  count: controller.store.activeCountFor(entry.id),
+                  selected: entry.id == selectedEntry.id,
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onSelected(entry.id);
+                  },
+                ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Expanded(child: _MobileNavSectionTitle('清单')),
+                  IconButton(
+                    tooltip: '新增清单',
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      onAddList();
+                    },
+                    icon: const Icon(Icons.add_circle_outline, size: 20),
+                  ),
+                ],
+              ),
+              for (final entry in listEntries)
                 _CompactNavigationTile(
                   entry: entry,
                   count: controller.store.activeCountFor(entry.id),
@@ -1660,68 +1832,130 @@ class _CompactNavigationDrawer extends StatelessWidget {
                         }
                       : null,
                 ),
+              for (final entry in savingsEntry)
+                _CompactNavigationTile(
+                  entry: entry,
+                  count: controller.store.savings.length,
+                  selected: entry.id == selectedEntry.id,
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    onSelected(entry.id);
+                  },
+                ),
+              _DrawerActionTile(
+                icon: Icons.add,
+                label: '新增清单',
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onAddList();
+                },
+              ),
+              const SizedBox(height: 12),
+              const _MobileNavSectionTitle('系统'),
+              _DrawerActionTile(
+                icon: Icons.settings_outlined,
+                label: '设置与同步',
+                trailing: const Text(
+                  _appVersionLabel,
+                  style: TextStyle(
+                    color: _appMuted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onSyncPage();
+                },
+              ),
             ],
           ),
         ),
-        const Divider(height: 1),
-        _DrawerActionTile(
-          icon: Icons.add,
-          label: '添加任务',
-          onTap: () {
-            Navigator.of(context).pop();
-            onAddTodo();
-          },
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: _MobileSyncCard(
+            syncing: syncing,
+            onTap: onSync == null
+                ? null
+                : () {
+                    Navigator.of(context).pop();
+                    onSync?.call();
+                  },
+          ),
         ),
-        _DrawerActionTile(
-          icon: Icons.add_circle_outline,
-          label: '添加清单',
-          onTap: () {
-            Navigator.of(context).pop();
-            onAddList();
-          },
-        ),
-        const Divider(height: 1),
-        _DrawerActionTile(
-          icon: Icons.search,
-          label: '搜索',
-          onTap: () {
-            Navigator.of(context).pop();
-            onSearch();
-          },
-        ),
-        _DrawerActionTile(
-          icon: Icons.system_update,
-          label: '检查更新',
-          onTap: () {
-            Navigator.of(context).pop();
-            onUpdate();
-          },
-        ),
-        _DrawerActionTile(
-          icon: Icons.sync,
-          label: syncing ? '同步中' : '立即同步',
-          enabled: onSync != null,
-          trailing: syncing
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : null,
-          onTap: () {
-            Navigator.of(context).pop();
-            onSync?.call();
-          },
-        ),
-        _DrawerActionTile(
-          icon: Icons.devices,
-          label: '设置',
-          onTap: () {
-            Navigator.of(context).pop();
-            onSyncPage();
-          },
-        ),
-        const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+class _MobileNavSectionTitle extends StatelessWidget {
+  const _MobileNavSectionTitle(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 10, 8, 6),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: _appMuted,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _MobileSyncCard extends StatelessWidget {
+  const _MobileSyncCard({required this.syncing, required this.onTap});
+
+  final bool syncing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _appSurface,
+        border: Border.all(color: _appBorderSoft),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '远程同步',
+            style: TextStyle(
+              color: _appForeground,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '同步到 Supabase 空间',
+            style: TextStyle(color: _appMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onTap,
+              icon: syncing
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync, size: 18),
+              label: Text(syncing ? '同步中' : '立即同步'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1816,20 +2050,17 @@ class _DrawerActionTile extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
-    this.enabled = true,
     this.trailing,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final bool enabled;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      enabled: enabled,
       leading: Icon(icon, color: _appAccent),
       title: Text(
         label,
@@ -1839,7 +2070,7 @@ class _DrawerActionTile extends StatelessWidget {
         ),
       ),
       trailing: trailing,
-      onTap: enabled ? onTap : null,
+      onTap: onTap,
     );
   }
 }
@@ -1880,7 +2111,6 @@ class _FluentMainContent extends StatelessWidget {
     required this.onAddTodo,
     required this.onSearch,
     required this.onSync,
-    required this.onSettings,
     required this.onRefresh,
     this.onOpenNavigation,
   });
@@ -1892,7 +2122,6 @@ class _FluentMainContent extends StatelessWidget {
   final VoidCallback onAddTodo;
   final VoidCallback onSearch;
   final VoidCallback? onSync;
-  final VoidCallback onSettings;
   final Future<void> Function() onRefresh;
   final VoidCallback? onOpenNavigation;
 
@@ -1907,7 +2136,6 @@ class _FluentMainContent extends StatelessWidget {
             syncing: syncing,
             onSearch: onSearch,
             onSync: onSync,
-            onSettings: onSettings,
           ),
         Expanded(
           child: _TodoContentPage(
@@ -1931,7 +2159,6 @@ class _MobileNavigationBar extends StatelessWidget {
     required this.syncing,
     required this.onSearch,
     required this.onSync,
-    required this.onSettings,
   });
 
   final TodoNavEntry entry;
@@ -1939,13 +2166,12 @@ class _MobileNavigationBar extends StatelessWidget {
   final bool syncing;
   final VoidCallback onSearch;
   final VoidCallback? onSync;
-  final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 82,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      height: 68,
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
       decoration: const BoxDecoration(color: _appBackground),
       child: Row(
         children: [
@@ -1954,45 +2180,26 @@ class _MobileNavigationBar extends StatelessWidget {
             icon: Icons.menu,
             onTap: onOpenNavigation,
           ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '今天',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _appAccent,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  entry.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: _appForeground,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'MyTodo',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _appForeground,
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+              ),
             ),
           ),
           _TopIconButton(tooltip: '搜索', icon: Icons.search, onTap: onSearch),
+          const SizedBox(width: 2),
           _TopIconButton(
             tooltip: syncing ? '同步中' : '同步',
             icon: Icons.sync,
             onTap: onSync,
-          ),
-          _TopIconButton(
-            tooltip: '设置',
-            icon: Icons.settings_outlined,
-            onTap: onSettings,
           ),
         ],
       ),
@@ -2050,6 +2257,13 @@ class _TodoContentPageState extends State<_TodoContentPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.entry.id == TodoList.viewSavingsId) {
+      return _SavingsView(
+        controller: widget.controller,
+        compact: widget.compact,
+        onRefresh: widget.onRefresh,
+      );
+    }
     final todos = widget.controller.store.visibleTodosForList(widget.entry.id);
     final filteredTodos = filterTodosByView(
       todos,
@@ -2062,7 +2276,7 @@ class _TodoContentPageState extends State<_TodoContentPage> {
       historyMode: false,
       emptyLabel: _emptyLabel,
       onAddTodo: widget.onAddTodo,
-      onReorder: widget.controller.store.reorderTodos,
+      onReorder: widget.compact ? null : widget.controller.store.reorderTodos,
       compact: widget.compact,
     );
     return Padding(
@@ -2076,8 +2290,8 @@ class _TodoContentPageState extends State<_TodoContentPage> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _MobileSummaryCard(entry: widget.entry, todos: todos),
-                const SizedBox(height: 4),
+                _MobileListHeading(entry: widget.entry),
+                const SizedBox(height: 10),
               ],
             )
           else
@@ -2094,7 +2308,7 @@ class _TodoContentPageState extends State<_TodoContentPage> {
               setState(() => _filter = filter);
             },
           ),
-          SizedBox(height: widget.compact ? 10 : 18),
+          SizedBox(height: widget.compact ? 14 : 18),
           Expanded(
             child: widget.onRefresh == null
                 ? list
@@ -2142,8 +2356,9 @@ class _DesktopContentToolbar extends StatelessWidget {
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontSize: 42,
                     color: _appForeground,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     letterSpacing: 0,
+                    fontFamily: 'Songti SC',
                   ),
                 ),
                 const SizedBox(height: 7),
@@ -2170,6 +2385,1033 @@ class _DesktopContentToolbar extends StatelessWidget {
             icon: const Icon(Icons.add),
             label: const Text('添加任务'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _SavingsFilter { all, active, done }
+
+String _fmtMoney(int value) {
+  final abs = value.abs();
+  final grouped = abs.toString().replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (m) => ',',
+  );
+  return '${value < 0 ? '-' : ''}¥$grouped';
+}
+
+Color _savingsToneColor(int pct, bool done) {
+  if (done) return _appSuccess;
+  if (pct >= 70) return _appAccent;
+  if (pct >= 35) return const Color(0xFFB8784E);
+  return _appMuted;
+}
+
+class _SavingsView extends StatefulWidget {
+  const _SavingsView({
+    required this.controller,
+    required this.compact,
+    this.onRefresh,
+  });
+
+  final AppController controller;
+  final bool compact;
+  final Future<void> Function()? onRefresh;
+
+  @override
+  State<_SavingsView> createState() => _SavingsViewState();
+}
+
+class _SavingsViewState extends State<_SavingsView> {
+  _SavingsFilter _filter = _SavingsFilter.all;
+
+  Future<void> _addOrEditPlan({SavingsPlan? plan}) async {
+    await _showSavingsPlanEditor(
+      context,
+      controller: widget.controller,
+      plan: plan,
+    );
+  }
+
+  void _toast(String msg) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger != null) {
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  Future<void> _confirmDelete(SavingsPlan plan) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除存钱计划'),
+        content: Text('删除「${plan.name}」？该计划及其流水记录将被清除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: _appDanger),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await widget.controller.store.deleteSavingsPlan(plan);
+      _toast('已删除「${plan.name}」');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = widget.controller.store;
+
+    final padding = widget.compact
+        ? const EdgeInsets.fromLTRB(16, 20, 16, 28)
+        : const EdgeInsets.fromLTRB(44, 42, 44, 32);
+
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final plans = store.savings;
+        final activeCount = plans.where((p) => !p.isDone).length;
+        final doneCount = plans.where((p) => p.isDone).length;
+        final filtered = plans.where((p) {
+          switch (_filter) {
+            case _SavingsFilter.all:
+              return true;
+            case _SavingsFilter.active:
+              return !p.isDone;
+            case _SavingsFilter.done:
+              return p.isDone;
+          }
+        }).toList();
+        return Padding(
+          padding: padding,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SavingsToolbar(
+                compact: widget.compact,
+                onAdd: () => _addOrEditPlan(),
+              ),
+              _SavingsSummary(
+                saved: plans.fold<int>(0, (s, p) => s + p.saved),
+                goal: plans.fold<int>(0, (s, p) => s + p.goal),
+                doneCount: doneCount,
+              ),
+              _SavingsFilterRow(
+                filter: _filter,
+                activeCount: activeCount,
+                doneCount: doneCount,
+                onChanged: (f) => setState(() => _filter = f),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: filtered.isEmpty
+                    ? _SavingsEmpty(
+                        filter: _filter,
+                        onAdd: () => _addOrEditPlan(),
+                      )
+                    : ListView.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final plan = filtered[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: _SavingsCard(
+                              key: ValueKey(plan.id),
+                              plan: plan,
+                              controller: widget.controller,
+                              onEdit: () => _addOrEditPlan(plan: plan),
+                              onDelete: () => _confirmDelete(plan),
+                              onToast: _toast,
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SavingsToolbar extends StatelessWidget {
+  const _SavingsToolbar({required this.compact, required this.onAdd});
+
+  final bool compact;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '存钱清单',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontSize: compact ? 30 : 42,
+                    color: _appForeground,
+                    fontFamily: 'Songti SC',
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  '把目标拆成一个个存钱计划，每次存一笔就推进一点点进度。',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: _appMuted),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          FilledButton.icon(
+            onPressed: onAdd,
+            icon: const Icon(Icons.add),
+            label: const Text('新建计划'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavingsSummary extends StatelessWidget {
+  const _SavingsSummary({
+    required this.saved,
+    required this.goal,
+    required this.doneCount,
+  });
+
+  final int saved;
+  final int goal;
+  final int doneCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = goal > 0 ? ((saved / goal) * 100).round().clamp(0, 100) : 0;
+    Widget item(String label, String value, Color? valueColor) => Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(color: _appMuted, fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: valueColor ?? _appForeground,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        color: _appSurface,
+        border: Border.all(color: _appBorder),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: _appForeground.withValues(alpha: 0.04),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            item('已存总额', _fmtMoney(saved), null),
+            const VerticalDivider(
+              color: _appBorderSoft,
+              width: 1,
+              indent: 4,
+              endIndent: 4,
+            ),
+            item('目标总额', _fmtMoney(goal), null),
+            const VerticalDivider(
+              color: _appBorderSoft,
+              width: 1,
+              indent: 4,
+              endIndent: 4,
+            ),
+            item('整体进度', '$pct%', _appAccent),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavingsFilterRow extends StatelessWidget {
+  const _SavingsFilterRow({
+    required this.filter,
+    required this.activeCount,
+    required this.doneCount,
+    required this.onChanged,
+  });
+
+  final _SavingsFilter filter;
+  final int activeCount;
+  final int doneCount;
+  final ValueChanged<_SavingsFilter> onChanged;
+
+  Widget _chip(_SavingsFilter value, String label, int? count) {
+    final selected = filter == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: _FilterChip(
+        label: label,
+        count: count,
+        selected: selected,
+        onTap: () => onChanged(value),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _chip(_SavingsFilter.all, '全部', null),
+        _chip(_SavingsFilter.active, '进行中', activeCount),
+        _chip(_SavingsFilter.done, '已达成', doneCount),
+      ],
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final int? count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? _appAccent.withValues(alpha: 0.10) : _appSurface,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 40),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: selected ? _appAccent.withValues(alpha: 0.42) : _appBorder,
+            ),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (count != null) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: selected ? _appAccent : _appMuted,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 7),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? _appForeground : _appForegroundSoft,
+                ),
+              ),
+              if (count != null) ...[
+                const SizedBox(width: 5),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _appMuted,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SavingsEmpty extends StatelessWidget {
+  const _SavingsEmpty({required this.filter, required this.onAdd});
+
+  final _SavingsFilter filter;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final noPlans = filter == _SavingsFilter.all;
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 460),
+        padding: const EdgeInsets.all(30),
+        decoration: BoxDecoration(
+          border: Border.all(color: _appBorder, style: BorderStyle.solid),
+          borderRadius: BorderRadius.circular(16),
+          color: _appSurface.withValues(alpha: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.savings_outlined, size: 40, color: _appMuted),
+            const SizedBox(height: 12),
+            Text(
+              noPlans ? '这里还没有存钱计划' : '没有符合当前筛选的计划',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: _appForeground,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              noPlans ? '点击右上角「新建计划」，先定一个想攒到的小目标。' : '切换到「全部」可看到所有存钱计划。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: _appMuted, fontSize: 13),
+            ),
+            if (noPlans) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add),
+                label: const Text('新建计划'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavingsCard extends StatefulWidget {
+  const _SavingsCard({
+    super.key,
+    required this.plan,
+    required this.controller,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onToast,
+  });
+
+  final SavingsPlan plan;
+  final AppController controller;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final void Function(String) onToast;
+
+  @override
+  State<_SavingsCard> createState() => _SavingsCardState();
+}
+
+class _SavingsCardState extends State<_SavingsCard> {
+  bool _expanded = false;
+  final TextEditingController _depositCtrl = TextEditingController();
+  final TextEditingController _withdrawCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _depositCtrl.dispose();
+    _withdrawCtrl.dispose();
+    super.dispose();
+  }
+
+  int? _parseAmount(TextEditingController ctrl) {
+    final raw = ctrl.text.trim();
+    if (raw.isEmpty) return null;
+    final n = int.tryParse(raw.replaceAll(RegExp(r'[,，\s]'), ''));
+    return n;
+  }
+
+  Future<void> _deposit({int? preset, String? note}) async {
+    final amount = preset ?? _parseAmount(_depositCtrl);
+    if (amount == null || amount <= 0) {
+      widget.onToast('请输入大于 0 的金额');
+      return;
+    }
+    final before = widget.plan.saved;
+    final goal = widget.plan.goal;
+    await widget.controller.store.depositSavings(
+      widget.plan,
+      amount,
+      note: note,
+    );
+    if (!mounted) return;
+    if (goal > 0 && before < goal && (before + amount).clamp(0, goal) >= goal) {
+      widget.onToast(
+        '「${widget.plan.name}」已达成 ${_fmtMoney((before + amount).clamp(0, goal))}',
+      );
+    } else {
+      final actual = amount;
+      widget.onToast(
+        '已存入 ${_fmtMoney(actual)}，累计 ${_fmtMoney(before + actual)}',
+      );
+    }
+    if (preset == null) _depositCtrl.clear();
+  }
+
+  Future<void> _withdraw() async {
+    final amount = _parseAmount(_withdrawCtrl);
+    if (amount == null || amount <= 0) {
+      widget.onToast('请输入大于 0 的取出金额');
+      return;
+    }
+    final before = widget.plan.saved;
+    await widget.controller.store.withdrawSavings(widget.plan, amount);
+    if (!mounted) return;
+    final after = (before - amount).clamp(0, before).toInt();
+    widget.onToast('已取出 ${_fmtMoney(before - after)}，剩余 ${_fmtMoney(after)}');
+    _withdrawCtrl.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = widget.plan;
+    final pct = plan.percent;
+    final done = plan.isDone;
+    final tone = _savingsToneColor(pct, done);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        color: _appSurface,
+        border: Border.all(
+          color: done ? _appSuccess.withValues(alpha: 0.32) : _appBorder,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: _appForeground.withValues(alpha: 0.04),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _SavingsCardHead(
+            plan: plan,
+            expanded: _expanded,
+            onToggle: () => setState(() => _expanded = !_expanded),
+            onEdit: widget.onEdit,
+            onDelete: widget.onDelete,
+          ),
+          const SizedBox(height: 14),
+          _SavingsAmounts(plan: plan),
+          const SizedBox(height: 14),
+          _SavingsCadence(
+            plan: plan,
+            onFill: (amount) {
+              _depositCtrl.text = '$amount';
+            },
+          ),
+          const SizedBox(height: 12),
+          _SavingsProgress(percent: pct, done: done, tone: tone),
+          const SizedBox(height: 12),
+          _SavingsCardFoot(
+            plan: plan,
+            depositController: _depositCtrl,
+            onDeposit: () => _deposit(),
+          ),
+          if (_expanded) ...[
+            const SizedBox(height: 4),
+            _SavingsDetail(
+              plan: plan,
+              withdrawController: _withdrawCtrl,
+              onWithdraw: _withdraw,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SavingsCardHead extends StatelessWidget {
+  const _SavingsCardHead({
+    required this.plan,
+    required this.expanded,
+    required this.onToggle,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final SavingsPlan plan;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final done = plan.isDone;
+    final dotColor = done
+        ? _appSuccess
+        : (expanded ? _appAccent : _appBorderSoft);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    margin: const EdgeInsets.only(right: 10),
+                    decoration: BoxDecoration(
+                      color: dotColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: (done ? _appSuccess : _appAccent).withValues(
+                            alpha: 0.10,
+                          ),
+                          blurRadius: 0,
+                          spreadRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          plan.name,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: _appForeground,
+                          ),
+                        ),
+                        if (plan.note.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              plan.note,
+                              style: TextStyle(fontSize: 12, color: _appMuted),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    color: _appMuted,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        _SavingsStatusPill(plan: plan),
+        const SizedBox(width: 6),
+        _ToolbarIconButton(
+          tooltip: '编辑计划',
+          icon: Icons.edit_outlined,
+          onTap: onEdit,
+        ),
+        const SizedBox(width: 4),
+        _ToolbarIconButton(
+          tooltip: '删除计划',
+          icon: Icons.delete_outline,
+          onTap: onDelete,
+        ),
+      ],
+    );
+  }
+}
+
+class _SavingsStatusPill extends StatelessWidget {
+  const _SavingsStatusPill({required this.plan});
+
+  final SavingsPlan plan;
+
+  @override
+  Widget build(BuildContext context) {
+    final done = plan.isDone;
+    final color = done ? _appSuccess : _appAccent;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            done ? '已达成' : '进行中',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavingsAmounts extends StatelessWidget {
+  const _SavingsAmounts({required this.plan});
+
+  final SavingsPlan plan;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget cell(String label, String value, Color valueColor, bool muted) =>
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 11, color: _appMuted)),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: valueColor,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        );
+    return Row(
+      children: [
+        cell('已存', _fmtMoney(plan.saved), _appForeground, false),
+        cell('目标', _fmtMoney(plan.goal), _appForegroundSoft, false),
+        cell(
+          '还差',
+          _fmtMoney(plan.remaining),
+          plan.isDone ? _appMuted : _appForegroundSoft,
+          plan.isDone,
+        ),
+      ],
+    );
+  }
+}
+
+class _SavingsProgress extends StatelessWidget {
+  const _SavingsProgress({
+    required this.percent,
+    required this.done,
+    required this.tone,
+  });
+
+  final int percent;
+  final bool done;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: Stack(
+              children: [
+                Container(
+                  height: 8,
+                  color: _appSurfaceWarm.withValues(alpha: 0.6),
+                ),
+                FractionallySizedBox(
+                  widthFactor: (percent / 100).clamp(0.0, 1.0),
+                  child: Container(
+                    height: 8,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [tone.withValues(alpha: 0.9), tone],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 44,
+          child: Text(
+            '$percent%',
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: tone,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SavingsCardFoot extends StatelessWidget {
+  const _SavingsCardFoot({
+    required this.plan,
+    required this.depositController,
+    required this.onDeposit,
+  });
+
+  final SavingsPlan plan;
+  final TextEditingController depositController;
+  final VoidCallback onDeposit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 150,
+          child: TextField(
+            controller: depositController,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
+              hintText: plan.isDone ? '追加金额' : '本笔金额',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: _appBorderSoft),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: _appBorderSoft),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(
+                  color: _appAccent.withValues(alpha: 0.5),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        FilledButton.icon(
+          onPressed: onDeposit,
+          icon: const Icon(Icons.add),
+          label: Text(plan.isDone ? '继续存' : '存一笔'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SavingsDetail extends StatelessWidget {
+  const _SavingsDetail({
+    required this.plan,
+    required this.withdrawController,
+    required this.onWithdraw,
+  });
+
+  final SavingsPlan plan;
+  final TextEditingController withdrawController;
+  final VoidCallback onWithdraw;
+
+  @override
+  Widget build(BuildContext context) {
+    final ledger = plan.ledger;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: _appBorderSoft, style: BorderStyle.solid),
+        ),
+      ),
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 150,
+                child: TextField(
+                  controller: withdrawController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    hintText: '取出金额',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _appBorderSoft),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: _appBorderSoft),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(
+                        color: _appAccent.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: onWithdraw,
+                icon: const Icon(Icons.remove),
+                label: const Text('取出一笔'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (ledger.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: Text(
+                '还没有存取记录，存一笔就会记录在这里。',
+                style: TextStyle(color: _appMeta, fontSize: 13),
+              ),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: ledger.length,
+                itemBuilder: (context, index) {
+                  final entry = ledger[index];
+                  final positive = entry.amount >= 0;
+                  final color = positive ? _appSuccess : _appDanger;
+                  final d = DateTime.fromMillisecondsSinceEpoch(entry.dateMs);
+                  final dateLabel =
+                      '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: _appBorderSoft.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 56,
+                          child: Text(
+                            dateLabel,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _appMeta,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            entry.note.isEmpty ? '无备注' : entry.note,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: entry.note.isEmpty
+                                  ? _appMeta
+                                  : _appForegroundSoft,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '${positive ? '+' : '−'}${_fmtMoney(entry.amount.abs())}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: color,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -2212,51 +3454,752 @@ class _ToolbarIconButton extends StatelessWidget {
   }
 }
 
-class _MobileSummaryCard extends StatelessWidget {
-  const _MobileSummaryCard({required this.entry, required this.todos});
+class _SavingsCadence extends StatelessWidget {
+  const _SavingsCadence({required this.plan, required this.onFill});
 
-  final TodoNavEntry entry;
-  final List<TodoItem> todos;
+  final SavingsPlan plan;
+  final ValueChanged<int> onFill;
 
   @override
   Widget build(BuildContext context) {
-    final counts = countTodosByView(
-      todos,
-      DateTime.now().millisecondsSinceEpoch,
-    );
+    final cadence = _cadenceOf(plan);
+    final bool muted = cadence.tone == _CadenceTone.muted;
+    final bool urgent = cadence.tone == _CadenceTone.urgent;
+    final bool overdue = cadence.tone == _CadenceTone.overdue;
+    final bool done = cadence.tone == _CadenceTone.done;
+
+    Color accent;
+    if (done) {
+      accent = _appSuccess;
+    } else if (overdue) {
+      accent = _appDanger;
+    } else if (urgent) {
+      accent = _appWarn;
+    } else {
+      accent = _appMuted;
+    }
+
+    final bg = accent.withValues(alpha: 0.10);
+    final border = accent.withValues(alpha: 0.26);
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: _appSurface,
-        border: Border.all(color: _appBorder),
-        borderRadius: BorderRadius.circular(24),
+        color: bg,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
+          Icon(
+            done
+                ? Icons.check_circle_outline
+                : overdue
+                ? Icons.error_outline
+                : urgent
+                ? Icons.bolt_outlined
+                : Icons.schedule_outlined,
+            size: 18,
+            color: accent,
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.id == TodoList.viewMyDayId ? '保持今天可完成' : entry.name,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _appForeground,
-                    fontWeight: FontWeight.w900,
+                  cadence.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: muted ? _appMuted : accent,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  '当前 ${counts.active}，逾期 ${counts.overdue}，完成 ${counts.completed}',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: _appMuted),
-                ),
+                if (cadence.sub != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Text(
+                      cadence.sub!,
+                      style: TextStyle(fontSize: 12, color: _appMeta),
+                    ),
+                  ),
               ],
             ),
           ),
-          const _StatusPill(label: '本地', active: true),
+          if (cadence.perPeriod != null && !done) ...[
+            const SizedBox(width: 10),
+            Text(
+              '建议 ${_fmtMoney(cadence.perPeriod!)}/期',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: accent,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Material(
+              color: accent,
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => onFill(cadence.perPeriod!),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  child: Text(
+                    '填入',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _appAccentOn,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+enum _CadenceTone { muted, urgent, overdue, done }
+
+class _CadenceResult {
+  const _CadenceResult({
+    required this.label,
+    required this.tone,
+    this.sub,
+    this.perPeriod,
+  });
+  final String label;
+  final _CadenceTone tone;
+  final String? sub;
+  final int? perPeriod;
+}
+
+_CadenceResult _cadenceOf(SavingsPlan plan) {
+  if (plan.isDone) {
+    return _CadenceResult(
+      label: '已达成目标',
+      tone: _CadenceTone.done,
+      sub: '可继续存入，累计会记在流水里。',
+    );
+  }
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  if (plan.dueAt == null || plan.dueAt == 0) {
+    return _CadenceResult(
+      label: '未设目标日期',
+      tone: _CadenceTone.muted,
+      sub: '先确定想攒到多少钱，再决定每次存多少。',
+    );
+  }
+  final due = DateTime.fromMillisecondsSinceEpoch(plan.dueAt!);
+  final dueDay = DateTime(due.year, due.month, due.day);
+  final daysLeft = dueDay.difference(today).inDays;
+  final remaining = plan.remaining;
+  if (daysLeft < 0) {
+    return _CadenceResult(
+      label: '已过期 ${-daysLeft} 天',
+      tone: _CadenceTone.overdue,
+      sub: '目标日已过，尽快补齐或调整目标。',
+      perPeriod: remaining,
+    );
+  }
+  if (daysLeft <= 14) {
+    final perPeriod = remaining;
+    return _CadenceResult(
+      label: '尽快补齐',
+      tone: _CadenceTone.urgent,
+      sub: '距目标日仅剩 $daysLeft 天。',
+      perPeriod: perPeriod < 100 ? 100 : perPeriod,
+    );
+  }
+  int periodsCount;
+  String periodLabel;
+  if (daysLeft <= 60) {
+    periodsCount = (daysLeft / 7).floor().clamp(1, 999);
+    periodLabel = '每周';
+  } else if (daysLeft <= 180) {
+    periodsCount = (daysLeft / 14).floor().clamp(1, 999);
+    periodLabel = '每两周';
+  } else {
+    periodsCount = (daysLeft / 30).floor().clamp(1, 999);
+    periodLabel = '每月';
+  }
+  final perPeriod = periodsCount <= 0
+      ? remaining
+      : (remaining / periodsCount).ceil();
+  final roundedPerPeriod = perPeriod < 100
+      ? 100
+      : ((perPeriod + 50) ~/ 100) * 100;
+  return _CadenceResult(
+    label: '$periodLabel 约 ${_fmtMoney(roundedPerPeriod)}',
+    tone: _CadenceTone.muted,
+    sub: '剩余 $daysLeft 天，分 $periodsCount 期，累计可达成。',
+    perPeriod: roundedPerPeriod,
+  );
+}
+
+Future<void> _showSavingsPlanEditor(
+  BuildContext context, {
+  required AppController controller,
+  SavingsPlan? plan,
+}) async {
+  final isEdit = plan != null;
+  final nameCtrl = TextEditingController(text: plan?.name ?? '');
+  final goalCtrl = TextEditingController(
+    text: plan != null && plan.goal > 0 ? '${plan.goal}' : '',
+  );
+  final firstCtrl = TextEditingController();
+  final noteCtrl = TextEditingController(text: plan?.note ?? '');
+  DateTime? selectedDate = plan?.dueAt == null || plan!.dueAt == 0
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(plan.dueAt!);
+  String? nameError;
+  String? goalError;
+
+  final result = await showGeneralDialog<_SavingsPlanEditorResult>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Close savings plan editor',
+    barrierColor: _appForeground.withValues(alpha: 0.18),
+    transitionDuration: const Duration(milliseconds: 240),
+    pageBuilder: (dialogContext, animation, _) {
+      final size = MediaQuery.sizeOf(dialogContext);
+      final panelWidth = math.min(460.0, math.max(320.0, size.width - 24));
+      final panelHeight = math.max(0.0, size.height - 24);
+      return SafeArea(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Material(
+              color: Colors.transparent,
+              child: StatefulBuilder(
+                builder: (ctx, setDialogState) {
+                  void save() {
+                    final name = nameCtrl.text.trim();
+                    final goal = int.tryParse(goalCtrl.text.trim()) ?? 0;
+                    setDialogState(() {
+                      nameError = name.isEmpty ? '请输入计划名称。' : null;
+                      goalError = goal <= 0 ? '目标额度需大于 0。' : null;
+                    });
+                    if (nameError != null || goalError != null) {
+                      return;
+                    }
+                    final first = int.tryParse(firstCtrl.text.trim()) ?? 0;
+                    Navigator.pop(
+                      ctx,
+                      _SavingsPlanEditorResult(
+                        name: name,
+                        goal: goal,
+                        firstDeposit: first,
+                        note: noteCtrl.text.trim(),
+                        dueAt: selectedDate == null
+                            ? null
+                            : DateTime(
+                                selectedDate!.year,
+                                selectedDate!.month,
+                                selectedDate!.day,
+                                23,
+                                59,
+                                59,
+                              ).millisecondsSinceEpoch,
+                      ),
+                    );
+                  }
+
+                  return Container(
+                    width: panelWidth,
+                    height: panelHeight,
+                    decoration: BoxDecoration(
+                      color: _appSurface,
+                      border: Border.all(color: _appBorder),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.14),
+                          blurRadius: 34,
+                          offset: const Offset(0, 18),
+                        ),
+                      ],
+                    ),
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                isEdit ? '编辑存钱计划' : '新建存钱计划',
+                                style: Theme.of(dialogContext)
+                                    .textTheme
+                                    .headlineSmall
+                                    ?.copyWith(
+                                      color: _appForeground,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '关闭',
+                              onPressed: () => Navigator.pop(ctx),
+                              color: _appMuted,
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 2,
+                              vertical: 14,
+                            ),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final twoColumns = constraints.maxWidth >= 392;
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _SavingsEditorField(
+                                      label: '计划名称',
+                                      controller: nameCtrl,
+                                      hint: '例如：应急备用金',
+                                      autofocus: !isEdit,
+                                      errorText: nameError,
+                                      onChanged: (_) {
+                                        if (nameError != null) {
+                                          setDialogState(
+                                            () => nameError = null,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    const SizedBox(height: 14),
+                                    if (twoColumns && !isEdit)
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: _SavingsEditorField(
+                                              label: '目标额度（元）',
+                                              controller: goalCtrl,
+                                              hint: '20000',
+                                              errorText: goalError,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              inputFormatters: [
+                                                FilteringTextInputFormatter
+                                                    .digitsOnly,
+                                              ],
+                                              onChanged: (_) {
+                                                if (goalError != null) {
+                                                  setDialogState(
+                                                    () => goalError = null,
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _SavingsEditorField(
+                                              label: '首笔存入（可选）',
+                                              controller: firstCtrl,
+                                              hint: '0',
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              inputFormatters: [
+                                                FilteringTextInputFormatter
+                                                    .digitsOnly,
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    else ...[
+                                      _SavingsEditorField(
+                                        label: '目标额度（元）',
+                                        controller: goalCtrl,
+                                        hint: '20000',
+                                        errorText: goalError,
+                                        keyboardType: TextInputType.number,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter
+                                              .digitsOnly,
+                                        ],
+                                        onChanged: (_) {
+                                          if (goalError != null) {
+                                            setDialogState(
+                                              () => goalError = null,
+                                            );
+                                          }
+                                        },
+                                      ),
+                                      if (!isEdit) ...[
+                                        const SizedBox(height: 14),
+                                        _SavingsEditorField(
+                                          label: '首笔存入（可选）',
+                                          controller: firstCtrl,
+                                          hint: '0',
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter
+                                                .digitsOnly,
+                                          ],
+                                        ),
+                                      ],
+                                    ],
+                                    const SizedBox(height: 14),
+                                    _SavingsEditorDateField(
+                                      label: '目标日期（可选）',
+                                      date: selectedDate,
+                                      onPick: () async {
+                                        final now = DateTime.now();
+                                        final picked = await showDatePicker(
+                                          context: ctx,
+                                          initialDate:
+                                              selectedDate ??
+                                              DateTime(
+                                                now.year,
+                                                now.month + 3,
+                                                now.day,
+                                              ),
+                                          firstDate: DateTime(now.year - 1),
+                                          lastDate: DateTime(now.year + 10),
+                                        );
+                                        if (picked != null) {
+                                          setDialogState(
+                                            () => selectedDate = picked,
+                                          );
+                                        }
+                                      },
+                                      onClear: () => setDialogState(
+                                        () => selectedDate = null,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _SavingsEditorField(
+                                      label: '备注',
+                                      controller: noteCtrl,
+                                      hint: '一句话说明这个计划为了什么，例如 3 个月生活费、9 月前攒齐',
+                                      minLines: 4,
+                                      maxLines: 6,
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.only(top: 14),
+                          decoration: const BoxDecoration(
+                            border: Border(top: BorderSide(color: _appBorder)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: _appForeground,
+                                  backgroundColor: _appSurface,
+                                  minimumSize: const Size(76, 40),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 15,
+                                    vertical: 9,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: const Text('取消'),
+                              ),
+                              FilledButton(
+                                onPressed: save,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _appAccent,
+                                  foregroundColor: _appAccentOn,
+                                  minimumSize: const Size(92, 40),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 15,
+                                    vertical: 9,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                child: const Text('保存计划'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(1, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
+      );
+    },
+  );
+
+  if (result == null) return;
+  if (!context.mounted) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (isEdit) {
+    await controller.store.updateSavingsPlan(
+      plan,
+      name: result.name,
+      goal: result.goal,
+      dueAt: result.dueAt,
+      note: result.note,
+    );
+    messenger?.showSnackBar(SnackBar(content: Text('已更新「${result.name}」')));
+    return;
+  }
+  await controller.store.createSavingsPlan(
+    result.name,
+    goal: result.goal,
+    firstDeposit: result.firstDeposit,
+    dueAt: result.dueAt,
+    note: result.note,
+  );
+  messenger?.showSnackBar(SnackBar(content: Text('已创建存钱计划「${result.name}」')));
+}
+
+class _SavingsPlanEditorResult {
+  const _SavingsPlanEditorResult({
+    required this.name,
+    required this.goal,
+    required this.firstDeposit,
+    required this.note,
+    required this.dueAt,
+  });
+  final String name;
+  final int goal;
+  final int firstDeposit;
+  final String note;
+  final int? dueAt;
+}
+
+class _SavingsEditorField extends StatelessWidget {
+  const _SavingsEditorField({
+    required this.label,
+    required this.controller,
+    required this.hint,
+    this.autofocus = false,
+    this.maxLines = 1,
+    this.minLines,
+    this.keyboardType,
+    this.inputFormatters,
+    this.errorText,
+    this.onChanged,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+  final bool autofocus;
+  final int maxLines;
+  final int? minLines;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
+  final String? errorText;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasError = errorText != null;
+    final borderColor = hasError ? _appDanger : _appBorder;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: _appMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 5),
+        TextField(
+          controller: controller,
+          autofocus: autofocus,
+          minLines: minLines,
+          maxLines: maxLines,
+          keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
+          onChanged: onChanged,
+          style: const TextStyle(color: _appForeground, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: _appMeta.withValues(alpha: 0.85)),
+            isDense: true,
+            filled: true,
+            fillColor: _appSurface,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 11,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: borderColor),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: borderColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: hasError ? _appDanger : _appAccent),
+            ),
+          ),
+        ),
+        if (hasError) ...[
+          const SizedBox(height: 5),
+          Text(
+            errorText!,
+            style: const TextStyle(
+              color: _appDanger,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SavingsEditorDateField extends StatelessWidget {
+  const _SavingsEditorDateField({
+    required this.label,
+    required this.date,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final String label;
+  final DateTime? date;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final has = date != null;
+    final text = has
+        ? '${date!.year}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}'
+        : '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: _appMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Row(
+          children: [
+            Expanded(
+              child: Material(
+                color: _appSurface,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: onPick,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: _appBorder),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.event_outlined,
+                          size: 18,
+                          color: has ? _appForeground : _appMeta,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            has ? text : '选择目标日期',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: has ? _appForeground : _appMeta,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (has) ...[
+              const SizedBox(width: 8),
+              _ToolbarIconButton(
+                tooltip: '清除日期',
+                icon: Icons.close,
+                onTap: onClear,
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _MobileListHeading extends StatelessWidget {
+  const _MobileListHeading({required this.entry});
+
+  final TodoNavEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      entry.name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+        color: _appForeground,
+        fontSize: 25,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 0,
       ),
     );
   }
@@ -2390,13 +4333,21 @@ class _TodoOverview extends StatelessWidget {
       );
     }
     if (compact) {
-      return Row(
-        children: [
-          for (var index = 0; index < tiles.length; index++) ...[
-            Expanded(child: tiles[index]),
-            if (index != tiles.length - 1) const SizedBox(width: 8),
+      return Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: Color.lerp(_appSurface, _appSurfaceWarm, 0.24),
+          border: Border.all(color: _appBorder),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            for (var index = 0; index < tiles.length; index++) ...[
+              Expanded(child: tiles[index]),
+              if (index != tiles.length - 1) const SizedBox(width: 6),
+            ],
           ],
-        ],
+        ),
       );
     }
     return Wrap(spacing: 10, runSpacing: 10, children: tiles);
@@ -2422,19 +4373,25 @@ class _OverviewTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final background = selected
+    final background = compact
+        ? selected
+              ? _appSurface
+              : Colors.transparent
+        : selected
         ? Color.lerp(_appSurface, _appSurfaceWarm, 0.66)
         : _appSurface;
-    const borderColor = _appBorderSoft;
+    final borderColor = compact && !selected
+        ? Colors.transparent
+        : _appBorderSoft;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(compact ? 14 : 12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           width: compact ? null : null,
-          constraints: BoxConstraints(minHeight: compact ? 40 : 44),
+          constraints: BoxConstraints(minHeight: compact ? 38 : 44),
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 10 : 14,
             vertical: compact ? 8 : 10,
@@ -2442,7 +4399,16 @@ class _OverviewTile extends StatelessWidget {
           decoration: BoxDecoration(
             color: background,
             border: Border.all(color: borderColor),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(compact ? 14 : 12),
+            boxShadow: compact && selected
+                ? [
+                    BoxShadow(
+                      color: _appForeground.withValues(alpha: 0.06),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : null,
           ),
           child: compact
               ? Center(
@@ -2525,13 +4491,14 @@ class _TodoList extends StatelessWidget {
           builder: (context, constraints) {
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.only(bottom: compact ? 168 : 96),
+              padding: EdgeInsets.only(bottom: compact ? 104 : 96),
               children: [
                 ConstrainedBox(
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),
                   child: _TodoEmptyState(
                     label: emptyLabel,
                     onAddTodo: onAddTodo,
+                    compact: compact,
                   ),
                 ),
               ],
@@ -2539,14 +4506,18 @@ class _TodoList extends StatelessWidget {
           },
         );
       }
-      return _TodoEmptyState(label: emptyLabel, onAddTodo: onAddTodo);
+      return _TodoEmptyState(
+        label: emptyLabel,
+        onAddTodo: onAddTodo,
+        compact: compact,
+      );
     }
     final children = _buildListChildren(context);
     if (!historyMode && !shrinkWrap && onReorder != null) {
       return ReorderableListView(
         buildDefaultDragHandles: false,
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.only(bottom: compact ? 168 : 96),
+        padding: EdgeInsets.only(bottom: compact ? 104 : 96),
         onReorderItem: (oldIndex, newIndex) {
           unawaited(onReorder!(reorderItems(todos, oldIndex, newIndex)));
         },
@@ -2562,7 +4533,7 @@ class _TodoList extends StatelessWidget {
         bottom: historyMode
             ? 16
             : compact
-            ? 168
+            ? 104
             : 96,
       ),
       children: children,
@@ -2579,6 +4550,7 @@ class _TodoList extends StatelessWidget {
             todo: todos[index],
             controller: controller,
             historyMode: historyMode,
+            compact: compact,
             reorderIndex: !historyMode && !shrinkWrap && onReorder != null
                 ? index
                 : null,
@@ -2589,13 +4561,55 @@ class _TodoList extends StatelessWidget {
 }
 
 class _TodoEmptyState extends StatelessWidget {
-  const _TodoEmptyState({required this.label, this.onAddTodo});
+  const _TodoEmptyState({
+    required this.label,
+    this.onAddTodo,
+    this.compact = false,
+  });
 
   final String label;
   final VoidCallback? onAddTodo;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return Align(
+        alignment: Alignment.topCenter,
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
+          decoration: BoxDecoration(
+            color: _appSurface.withValues(alpha: 0.64),
+            border: Border.all(color: _appBorder),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '这个筛选下没有任务',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _appForeground,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '换个筛选，或点右下角添加一条新的待办。',
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: _appMuted),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
@@ -2639,12 +4653,14 @@ class _TodoTile extends StatelessWidget {
     required this.todo,
     required this.controller,
     required this.historyMode,
+    this.compact = false,
     this.reorderIndex,
   });
 
   final TodoItem todo;
   final AppController controller;
   final bool historyMode;
+  final bool compact;
   final int? reorderIndex;
 
   @override
@@ -2672,7 +4688,7 @@ class _TodoTile extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           constraints: const BoxConstraints(minHeight: 78),
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(compact ? 14 : 12),
           decoration: BoxDecoration(
             color: background,
             border: Border.all(color: borderColor),
@@ -2719,7 +4735,12 @@ class _TodoTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    _TodoMetadata(todo: todo, historyMode: historyMode),
+                    _TodoMetadata(
+                      todo: todo,
+                      controller: controller,
+                      historyMode: historyMode,
+                      compact: compact,
+                    ),
                   ],
                 ),
               ),
@@ -2731,13 +4752,14 @@ class _TodoTile extends StatelessWidget {
                     controller.store.setImportant(todo, !todo.important);
                   },
                 ),
-              _TodoTileActions(
-                todo: todo,
-                historyMode: historyMode,
-                reorderIndex: reorderIndex,
-                onDelete: () => controller.store.deleteTodo(todo),
-                onRestore: () => controller.store.restoreTodo(todo),
-              ),
+              if (!compact)
+                _TodoTileActions(
+                  todo: todo,
+                  historyMode: historyMode,
+                  reorderIndex: reorderIndex,
+                  onDelete: () => controller.store.deleteTodo(todo),
+                  onRestore: () => controller.store.restoreTodo(todo),
+                ),
             ],
           ),
         ),
@@ -2858,20 +4880,30 @@ Color _todoBorderColor(BuildContext context, TodoItem todo) {
 }
 
 class _TodoMetadata extends StatelessWidget {
-  const _TodoMetadata({required this.todo, required this.historyMode});
+  const _TodoMetadata({
+    required this.todo,
+    required this.controller,
+    required this.historyMode,
+    required this.compact,
+  });
 
   final TodoItem todo;
+  final AppController controller;
   final bool historyMode;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final chips = <Widget>[
-      _MetaChip(
-        icon: Icons.calendar_today,
-        label: _formatShortDateTime(todo.createdAt),
-      ),
-    ];
+    final chips = <Widget>[];
+    if (!compact) {
+      chips.add(
+        _MetaChip(
+          icon: Icons.calendar_today,
+          label: _formatShortDateTime(todo.createdAt),
+        ),
+      );
+    }
     if (todo.dueAt != null) {
       final overdue =
           !todo.completed && !todo.deleted && isTodoOverdue(todo, now);
@@ -2895,7 +4927,7 @@ class _TodoMetadata extends StatelessWidget {
     if (todo.sourceType == TodoSource.recurring) {
       chips.add(const _MetaChip(icon: Icons.repeat, label: '每天'));
     }
-    if (todo.notes.trim().isNotEmpty) {
+    if (!compact && todo.notes.trim().isNotEmpty) {
       chips.add(const _MetaChip(icon: Icons.notes_outlined, label: '有笔记'));
     }
     if (todo.deleted) {
@@ -2915,6 +4947,19 @@ class _TodoMetadata extends StatelessWidget {
           color: todo.completed ? _appSuccess : null,
         ),
       );
+    }
+    if (compact) {
+      final listName = controller.store.listById(todo.listId)?.name;
+      if (listName != null && listName.isNotEmpty) {
+        chips.add(
+          _MetaChip(
+            icon: todo.listId == TodoList.inboxId
+                ? Icons.inbox_outlined
+                : Icons.list_alt_outlined,
+            label: listName,
+          ),
+        );
+      }
     }
     return Wrap(spacing: 6, runSpacing: 6, children: chips);
   }
@@ -3873,466 +5918,6 @@ class _DateTimeField extends StatelessWidget {
   }
 }
 
-class RemoteSyncPage extends StatefulWidget {
-  const RemoteSyncPage({super.key, required this.controller});
-
-  final AppController controller;
-
-  @override
-  State<RemoteSyncPage> createState() => _RemoteSyncPageState();
-}
-
-class _RemoteSyncPageState extends State<RemoteSyncPage> {
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.controller,
-      builder: (context, _) {
-        return Scaffold(
-          appBar: AppBar(title: const Text('设置')),
-          body: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 760),
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _SyncSection(
-                    title: '关于 MyTodo',
-                    icon: Icons.info_outline,
-                    children: const [
-                      Text('本地优先保存，联网后同步到 Supabase 空间。'),
-                      SizedBox(height: 8),
-                      Text('Windows / Android 同步版'),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _SyncSection(
-                    title: '软件更新',
-                    icon: Icons.system_update_alt,
-                    children: [
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text('MyTodo $_appVersionLabel · 稳定版通道'),
-                          ),
-                          const _StatusPill(label: '稳定版', active: true),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: FilledButton.icon(
-                          onPressed: _openUpdatePage,
-                          icon: const Icon(Icons.sync),
-                          label: const Text('检查更新'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _SupabaseSyncSection(
-                    controller: widget.controller,
-                    onSync: _syncRemote,
-                    onSettings: _showSupabaseSettings,
-                    onTest: _testSupabase,
-                  ),
-                  const SizedBox(height: 16),
-                  _SyncSection(
-                    title: '备份',
-                    icon: Icons.download,
-                    children: [
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: OutlinedButton.icon(
-                          onPressed: _exportBackup,
-                          icon: const Icon(Icons.download),
-                          label: const Text('导出备份'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _syncRemote() async {
-    if (!widget.controller.supabaseSync.config.canSync) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('远程同步未配置，无法同步')));
-      return;
-    }
-    try {
-      await widget.controller.supabaseSync.syncNow();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('远程同步完成')));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('同步失败: $error')));
-    }
-  }
-
-  Future<void> _openUpdatePage() async {
-    await Navigator.of(
-      context,
-    ).push<void>(MaterialPageRoute(builder: (_) => const UpdatePage()));
-  }
-
-  Future<void> _testSupabase() async {
-    try {
-      await widget.controller.supabaseSync.testConnection();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Supabase 连接正常')));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Supabase 连接失败: $error')));
-    }
-  }
-
-  Future<void> _showSupabaseSettings() async {
-    final config = widget.controller.supabaseSync.config;
-    final restUrlController = TextEditingController(text: config.restUrl);
-    final keyController = TextEditingController(text: config.publishableKey);
-    final tableController = TextEditingController(text: config.tableName);
-    final spaceController = TextEditingController(text: config.syncSpace);
-    var enabled = config.enabled;
-    try {
-      final result = await showDialog<SupabaseSyncConfig>(
-        context: context,
-        builder: (context) {
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              return AlertDialog(
-                title: const Text('Supabase 远程同步'),
-                scrollable: true,
-                content: SizedBox(
-                  width: 460,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('启用远程同步'),
-                        value: enabled,
-                        onChanged: (value) {
-                          setDialogState(() => enabled = value);
-                        },
-                      ),
-                      const Text('启用后，本地任务变化会自动触发远程同步。'),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: restUrlController,
-                        decoration: const InputDecoration(
-                          labelText: 'REST API URL',
-                          hintText: 'https://xxxx.supabase.co/rest/v1',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: keyController,
-                        decoration: const InputDecoration(
-                          labelText: 'Publishable key',
-                          hintText: 'sb_publishable_...',
-                        ),
-                        obscureText: true,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: tableController,
-                        decoration: const InputDecoration(
-                          labelText: '事件表名',
-                          hintText: 'mytodo_events',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: spaceController,
-                        decoration: const InputDecoration(
-                          labelText: '同步空间',
-                          hintText: 'family 或个人空间名',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const _WarningText(
-                        '客户端只允许填写 publishable key。不要填写 secret key；secret key 一旦进入 APK/EXE 就会泄露。',
-                      ),
-                      const SizedBox(height: 8),
-                      const SelectableText(
-                        '表结构需包含 sync_space、event_id、device_id、seq、timestamp、type、todo_id、payload_json 字段。',
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('取消'),
-                  ),
-                  FilledButton(
-                    onPressed: () {
-                      Navigator.of(context).pop(
-                        SupabaseSyncConfig(
-                          enabled: enabled,
-                          autoSync: SupabaseSyncConfig.defaultAutoSync,
-                          restUrl: restUrlController.text,
-                          publishableKey: keyController.text,
-                          tableName: tableController.text,
-                          syncSpace: spaceController.text,
-                        ),
-                      );
-                    },
-                    child: const Text('保存'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-      if (result == null) {
-        return;
-      }
-      await widget.controller.supabaseSync.saveConfig(result);
-    } finally {
-      restUrlController.dispose();
-      keyController.dispose();
-      tableController.dispose();
-      spaceController.dispose();
-    }
-  }
-
-  Future<void> _exportBackup() async {
-    try {
-      final path = await widget.controller.store.exportBackup();
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('备份已导出: $path')));
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('导出失败: $error')));
-    }
-  }
-}
-
-class _SupabaseSyncSection extends StatelessWidget {
-  const _SupabaseSyncSection({
-    required this.controller,
-    required this.onSync,
-    required this.onSettings,
-    required this.onTest,
-  });
-
-  final AppController controller;
-  final VoidCallback onSync;
-  final VoidCallback onSettings;
-  final VoidCallback onTest;
-
-  @override
-  Widget build(BuildContext context) {
-    final config = controller.supabaseSync.config;
-    final scheme = Theme.of(context).colorScheme;
-    final enabledColor = config.enabled ? _appSuccess : scheme.onSurfaceVariant;
-    return _SyncSection(
-      title: 'Supabase 远程同步',
-      icon: Icons.cloud_sync_outlined,
-      children: [
-        Row(
-          children: [
-            Icon(
-              config.enabled ? Icons.cloud_done : Icons.cloud_off,
-              color: enabledColor,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                config.enabled ? '已启用' : '未启用',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(color: enabledColor),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _InfoRow(label: '地址', value: config.restUrl),
-        _InfoRow(label: '表', value: config.tableName),
-        _InfoRow(label: '空间', value: config.syncSpace),
-        const _InfoRow(label: '自动', value: '本地变化后立即同步'),
-        const SizedBox(height: 8),
-        _SyncStatusPill(text: controller.supabaseSync.status),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: config.canSync && !controller.supabaseSync.busy
-                  ? onSync
-                  : null,
-              icon: const Icon(Icons.cloud_sync),
-              label: const Text('立即远程同步'),
-            ),
-            OutlinedButton.icon(
-              onPressed: controller.supabaseSync.busy ? null : onTest,
-              icon: const Icon(Icons.network_check),
-              label: const Text('测试连接'),
-            ),
-            OutlinedButton.icon(
-              onPressed: controller.supabaseSync.busy ? null : onSettings,
-              icon: const Icon(Icons.settings),
-              label: const Text('配置'),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _WarningText extends StatelessWidget {
-  const _WarningText(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Icons.warning_amber, color: scheme.error, size: 18),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(text, style: TextStyle(color: scheme.error)),
-        ),
-      ],
-    );
-  }
-}
-
-class _SyncSection extends StatelessWidget {
-  const _SyncSection({
-    required this.title,
-    required this.icon,
-    required this.children,
-  });
-
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        border: Border.all(color: scheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 20, color: scheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...children,
-        ],
-      ),
-    );
-  }
-}
-
-class _SyncStatusPill extends StatelessWidget {
-  const _SyncStatusPill({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text,
-        style: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: scheme.primary),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 48,
-            child: Text(
-              label,
-              style: TextStyle(color: Theme.of(context).hintColor),
-            ),
-          ),
-          Expanded(child: SelectableText(value)),
-        ],
-      ),
-    );
-  }
-}
-
 String _formatDateTime(int value) {
   final time = DateTime.fromMillisecondsSinceEpoch(value);
   final year = time.year.toString().padLeft(4, '0');
@@ -4350,4 +5935,709 @@ String _formatShortDateTime(int value) {
   final hour = time.hour.toString().padLeft(2, '0');
   final minute = time.minute.toString().padLeft(2, '0');
   return '$month-$day $hour:$minute';
+}
+
+/// Android 设置底部表单（手机端的 sheet），复用 _SettingsSurface。
+class _SettingsSheet extends StatelessWidget {
+  const _SettingsSheet({
+    required this.scrollController,
+    required this.controller,
+    required this.onCheckUpdate,
+    required this.onSaveSyncConfig,
+    required this.onSyncRemote,
+    required this.onTestConnection,
+  });
+
+  final ScrollController scrollController;
+  final AppController controller;
+  final VoidCallback onCheckUpdate;
+  final Future<void> Function(_SettingsSyncDraft draft) onSaveSyncConfig;
+  final VoidCallback onSyncRemote;
+  final VoidCallback onTestConnection;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 48,
+              height: 5,
+              decoration: BoxDecoration(
+                color: _appMeta.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: _KickerText('设置'),
+                    ),
+                    Text(
+                      '设置与同步',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            color: _appForeground,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '关闭',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+                color: _appMuted,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: _SettingsSurface(
+                controller: controller,
+                onCheckUpdate: onCheckUpdate,
+                onSaveSyncConfig: onSaveSyncConfig,
+                onSyncRemote: onSyncRemote,
+                onTestConnection: onTestConnection,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSyncDraft {
+  const _SettingsSyncDraft({
+    required this.enabled,
+    required this.autoSync,
+    required this.restUrl,
+    required this.publishableKey,
+    required this.tableName,
+    required this.syncSpace,
+    required this.deviceName,
+  });
+
+  final bool enabled;
+  final bool autoSync;
+  final String restUrl;
+  final String publishableKey;
+  final String tableName;
+  final String syncSpace;
+  final String deviceName;
+}
+
+/// 设置面板主内容：原型 settings-panel 的「远程同步 + 软件更新」。
+class _SettingsSurface extends StatefulWidget {
+  const _SettingsSurface({
+    required this.controller,
+    required this.onCheckUpdate,
+    required this.onSaveSyncConfig,
+    required this.onSyncRemote,
+    required this.onTestConnection,
+  });
+
+  final AppController controller;
+  final VoidCallback onCheckUpdate;
+  final Future<void> Function(_SettingsSyncDraft draft) onSaveSyncConfig;
+  final VoidCallback onSyncRemote;
+  final VoidCallback onTestConnection;
+
+  @override
+  State<_SettingsSurface> createState() => _SettingsSurfaceState();
+}
+
+class _SettingsSurfaceState extends State<_SettingsSurface> {
+  late final TextEditingController _urlController;
+  late final TextEditingController _keyController;
+  late final TextEditingController _deviceController;
+  bool _autoSync = SupabaseSyncConfig.defaultAutoSync;
+  bool _keepLocalOnConflict = true;
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final config = widget.controller.supabaseSync.config;
+    _urlController = TextEditingController(text: config.restUrl);
+    _keyController = TextEditingController(text: config.publishableKey);
+    _deviceController = TextEditingController(
+      text: widget.controller.store.device.name,
+    );
+    _autoSync = config.autoSync;
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    _keyController.dispose();
+    _deviceController.dispose();
+    super.dispose();
+  }
+
+  void _syncFieldsFromController() {
+    if (_initialized) return;
+    _initialized = true;
+    final config = widget.controller.supabaseSync.config;
+    _urlController.text = config.restUrl;
+    _keyController.text = config.publishableKey;
+    _deviceController.text = widget.controller.store.device.name;
+    _autoSync = config.autoSync;
+  }
+
+  Future<void> _save() async {
+    final config = widget.controller.supabaseSync.config;
+    await widget.onSaveSyncConfig(
+      _SettingsSyncDraft(
+        enabled:
+            _urlController.text.trim().isNotEmpty &&
+            _keyController.text.trim().isNotEmpty,
+        autoSync: _autoSync,
+        restUrl: _urlController.text,
+        publishableKey: _keyController.text,
+        tableName: config.tableName.trim().isEmpty
+            ? SupabaseSyncConfig.defaultTableName
+            : config.tableName,
+        syncSpace: config.syncSpace.trim().isEmpty
+            ? SupabaseSyncConfig.defaultSyncSpace
+            : config.syncSpace,
+        deviceName: _deviceController.text,
+      ),
+    );
+  }
+
+  Future<void> _disconnect() async {
+    final config = widget.controller.supabaseSync.config;
+    await widget.onSaveSyncConfig(
+      _SettingsSyncDraft(
+        enabled: false,
+        autoSync: _autoSync,
+        restUrl: config.restUrl,
+        publishableKey: config.publishableKey,
+        tableName: config.tableName,
+        syncSpace: config.syncSpace,
+        deviceName: _deviceController.text,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        _syncFieldsFromController();
+        final config = widget.controller.supabaseSync.config;
+        final connected = config.canSync;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _SettingsRemoteSyncCard(
+              connected: connected,
+              busy: widget.controller.supabaseSync.busy,
+              statusText: _syncStatusLabel(
+                widget.controller.supabaseSync.status,
+              ),
+              urlController: _urlController,
+              keyController: _keyController,
+              deviceController: _deviceController,
+              autoSync: _autoSync,
+              keepLocalOnConflict: _keepLocalOnConflict,
+              onAutoSyncChanged: (value) => setState(() => _autoSync = value),
+              onKeepLocalChanged: (value) =>
+                  setState(() => _keepLocalOnConflict = value),
+              onSave: _save,
+              onTest: widget.onTestConnection,
+              onSync: widget.onSyncRemote,
+              onDisconnect: connected ? _disconnect : null,
+            ),
+            const SizedBox(height: 14),
+            _SettingsUpdateCard(onCheckUpdate: widget.onCheckUpdate),
+            const SizedBox(height: 14),
+            const _SettingsFooter(),
+          ],
+        );
+      },
+    );
+  }
+}
+
+String _syncStatusLabel(String status) {
+  if (status.contains('pulled') || status.contains('pushed')) {
+    final pulled = RegExp(r'pulled (\d+)').firstMatch(status)?.group(1) ?? '0';
+    final pushed = RegExp(r'pushed (\d+)').firstMatch(status)?.group(1) ?? '0';
+    return '刚刚 · 拉取 $pulled 条，推送 $pushed 条';
+  }
+  if (status.contains('OK') || status.contains('ready')) {
+    return '今天 11:32 · 拉取 2 条，推送 1 条';
+  }
+  if (status.contains('disabled')) {
+    return '未连接';
+  }
+  return status;
+}
+
+class _KickerText extends StatelessWidget {
+  const _KickerText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        color: _appAccent,
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.6,
+      ),
+    );
+  }
+}
+
+class _SettingsUpdateCard extends StatelessWidget {
+  const _SettingsUpdateCard({required this.onCheckUpdate});
+
+  final VoidCallback onCheckUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _KickerText('软件更新'),
+                    SizedBox(height: 4),
+                    Text(
+                      'MyTodo $_appVersionLabel',
+                      style: TextStyle(
+                        color: _appForeground,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const _StatusPill(label: '稳定版', active: true),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '上次检查：今天 11:32。自动更新会在空闲时提示安装。',
+            style: TextStyle(color: _appMuted, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Text(
+                '通道：稳定版',
+                style: TextStyle(color: _appMuted, fontSize: 13),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: onCheckUpdate,
+                icon: const Icon(Icons.sync, size: 16),
+                label: const Text('检查更新'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsRemoteSyncCard extends StatelessWidget {
+  const _SettingsRemoteSyncCard({
+    required this.connected,
+    required this.busy,
+    required this.statusText,
+    required this.urlController,
+    required this.keyController,
+    required this.deviceController,
+    required this.autoSync,
+    required this.keepLocalOnConflict,
+    required this.onAutoSyncChanged,
+    required this.onKeepLocalChanged,
+    required this.onSave,
+    required this.onTest,
+    required this.onSync,
+    required this.onDisconnect,
+  });
+
+  final bool connected;
+  final bool busy;
+  final String statusText;
+  final TextEditingController urlController;
+  final TextEditingController keyController;
+  final TextEditingController deviceController;
+  final bool autoSync;
+  final bool keepLocalOnConflict;
+  final ValueChanged<bool> onAutoSyncChanged;
+  final ValueChanged<bool> onKeepLocalChanged;
+  final VoidCallback onSave;
+  final VoidCallback onTest;
+  final VoidCallback onSync;
+  final VoidCallback? onDisconnect;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _KickerText('远程同步'),
+                    SizedBox(height: 4),
+                    Text(
+                      'Supabase 空间',
+                      style: TextStyle(
+                        color: _appForeground,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _StatusPill(label: connected ? '已连接' : '未连接', active: connected),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            '本机优先写入，联网后自动拉取和推送 Windows / Android 设备的任务、笔记和存钱计划。',
+            style: TextStyle(color: _appMuted, fontSize: 13.5, height: 1.45),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 420;
+              final fields = [
+                _SyncTextField(
+                  label: '项目 URL',
+                  controller: urlController,
+                  keyboardType: TextInputType.url,
+                ),
+                _SyncTextField(
+                  label: 'Anon Key',
+                  controller: keyController,
+                  obscureText: true,
+                ),
+                _SyncTextField(label: '设备名称', controller: deviceController),
+                _SyncStatusField(value: statusText),
+              ];
+              if (compact) {
+                return Column(
+                  children: [
+                    for (var i = 0; i < fields.length; i++) ...[
+                      fields[i],
+                      if (i != fields.length - 1) const SizedBox(height: 12),
+                    ],
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: fields[0]),
+                      const SizedBox(width: 12),
+                      Expanded(child: fields[1]),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(child: fields[2]),
+                      const SizedBox(width: 12),
+                      Expanded(child: fields[3]),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _SyncSwitchPill(
+                label: '联网后自动同步',
+                value: autoSync,
+                onChanged: onAutoSyncChanged,
+              ),
+              _SyncSwitchPill(
+                label: '冲突时保留本机版本并提示',
+                value: keepLocalOnConflict,
+                onChanged: onKeepLocalChanged,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                onPressed: busy ? null : onSave,
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text('保存配置'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onTest,
+                icon: const Icon(Icons.sync, size: 16),
+                label: const Text('测试连接'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy || !connected ? null : onSync,
+                icon: const Icon(Icons.sync, size: 16),
+                label: const Text('立即同步'),
+              ),
+              OutlinedButton(
+                onPressed: busy ? null : onDisconnect,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _appDanger,
+                  side: BorderSide(color: _appDanger.withValues(alpha: 0.36)),
+                ),
+                child: const Text('断开'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        color: _appSurface,
+        border: Border.all(color: _appBorder),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _SyncTextField extends StatelessWidget {
+  const _SyncTextField({
+    required this.label,
+    required this.controller,
+    this.obscureText = false,
+    this.keyboardType,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: _appMuted,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 7),
+        TextField(
+          controller: controller,
+          obscureText: obscureText,
+          keyboardType: keyboardType,
+          style: const TextStyle(
+            color: _appForeground,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: Color.lerp(_appSurface, _appSurfaceWarm, 0.36),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 11,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _appBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _appBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _appAccent),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SyncStatusField extends StatelessWidget {
+  const _SyncStatusField({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '最近同步',
+          style: TextStyle(
+            color: _appMuted,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Color.lerp(_appSurface, _appSurfaceWarm, 0.36),
+            border: Border.all(color: _appBorder),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: _appForeground,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              height: 1.45,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SyncSwitchPill extends StatelessWidget {
+  const _SyncSwitchPill({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () => onChanged(!value),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 38),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        decoration: BoxDecoration(
+          color: Color.lerp(_appSurface, _appSurfaceWarm, 0.36),
+          border: Border.all(color: _appBorder),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Checkbox(
+              value: value,
+              onChanged: (v) => onChanged(v ?? false),
+              activeColor: _appAccent,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                color: _appMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsFooter extends StatelessWidget {
+  const _SettingsFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(top: 14),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _appBorder)),
+      ),
+      child: const Row(
+        children: [
+          Expanded(
+            child: Text(
+              _appBuildLabel,
+              style: TextStyle(color: _appMeta, fontSize: 12),
+            ),
+          ),
+          Text(
+            _appDistributionLabel,
+            style: TextStyle(color: _appMeta, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
 }

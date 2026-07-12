@@ -269,6 +269,7 @@ void main() {
     );
 
     expect(store.lists.map((list) => list.id), contains(TodoList.inboxId));
+    expect(store.listById(TodoList.inboxId)?.name, '收件箱');
     expect(
       store.lists.map((list) => list.id),
       isNot(contains(TodoList.dailyId)),
@@ -282,6 +283,49 @@ void main() {
     expect(store.visibleTodosForList(work.id).map((todo) => todo.title), [
       'Work item',
     ]);
+  });
+
+  test('prototype data seeds an empty store once', () async {
+    final store = await _freshStore('device-a');
+
+    final seeded = await store.seedPrototypeDataIfEmpty(
+      now: DateTime(2026, 7, 12, 14),
+    );
+
+    expect(seeded, isTrue);
+    expect(store.listById(TodoList.inboxId)?.name, '收件箱');
+    expect(store.lists.map((list) => list.name), containsAll(['工作', '生活']));
+    expect(
+      store.todos.map((todo) => todo.title),
+      containsAll([
+        '整理周末采购清单',
+        '同步 Windows 和 Android 设备',
+        '处理过期发票',
+        '检查应用内更新页面',
+      ]),
+    );
+    expect(store.todos.where((todo) => todo.important), hasLength(2));
+    expect(store.todos.where((todo) => todo.completed), hasLength(1));
+    expect(
+      store.savings.map((plan) => plan.name),
+      containsAll(['应急备用金', '旅行基金', '新设备款']),
+    );
+    expect(store.savings, hasLength(3));
+    expect(
+      store.savings.firstWhere((plan) => plan.name == '应急备用金').saved,
+      7000,
+    );
+    expect(
+      store.savings.firstWhere((plan) => plan.name == '新设备款').isDone,
+      isTrue,
+    );
+
+    final eventCount = (await store.allEvents()).length;
+    final seededAgain = await store.seedPrototypeDataIfEmpty(
+      now: DateTime(2026, 7, 12, 14),
+    );
+    expect(seededAgain, isFalse);
+    expect(await store.allEvents(), hasLength(eventCount));
   });
 
   test('daily recurring template generates at most one todo per day', () async {
@@ -478,6 +522,37 @@ CREATE TABLE todo_lists (
     expect(second.todos.single.important, isTrue);
   });
 
+  test(
+    'progress persists, links with completion, and syncs between stores',
+    () async {
+      final first = await _freshStore('device-a');
+      final second = await _freshStore('device-b');
+
+      await first.createTodo('Ship feature', progress: 35);
+      expect(first.todos.single.progress, 35);
+
+      await first.setProgress(first.todos.single, 100);
+      expect(first.todos.single.progress, 100);
+      expect(first.todos.single.completed, isTrue);
+
+      // un-completing backs progress down from 100 to 80
+      await first.setCompleted(first.todos.single, false);
+      expect(first.todos.single.progress, 80);
+      expect(first.todos.single.completed, isFalse);
+
+      // lower progress values are preserved when un-completing
+      await first.setProgress(first.todos.single, 40);
+      await first.setCompleted(first.todos.single, false);
+      expect(first.todos.single.progress, 40);
+
+      final events = await first.eventsAfterClock(await second.eventClock());
+      await second.applyRemoteEvents(events);
+
+      expect(second.todos.single.progress, 40);
+      expect(second.todos.single.completed, isFalse);
+    },
+  );
+
   test('important view only shows important todos', () async {
     final store = await _freshStore('device-a');
     await store.createTodo('Normal');
@@ -537,5 +612,118 @@ CREATE TABLE todo_lists (
     await second.applyRemoteEvents(events);
 
     expect(second.listById(list.id)?.color, 0xFF3FA864);
+  });
+
+  test('savings plan persists in store and respects first deposit', () async {
+    final store = await _freshStore('device-a');
+    final plan = await store.createSavingsPlan(
+      '换新电脑',
+      goal: 20000,
+      firstDeposit: 1500,
+    );
+    expect(store.savings, hasLength(1));
+    expect(store.savings.single.id, plan.id);
+    expect(store.savings.single.saved, 1500);
+    expect(store.savings.single.goal, 20000);
+    expect(store.savings.single.ledger, hasLength(1));
+    expect(store.savings.single.ledger.single.amount, 1500);
+  });
+
+  test('depositSavings caps at goal and unshifts positive ledger', () async {
+    final store = await _freshStore('device-a');
+    final plan = await store.createSavingsPlan(
+      '旅行',
+      goal: 1000,
+      firstDeposit: 400,
+    );
+
+    await store.depositSavings(plan, 800, note: '大额');
+    final after1 = store.savings.single;
+    expect(after1.saved, 1000, reason: 'capped at goal');
+    expect(
+      after1.ledger.first.amount,
+      600,
+      reason: 'actual deposited = goal - before',
+    );
+    expect(after1.ledger.length, 2, reason: 'unshift keeps prior entry');
+    expect(after1.isDone, isTrue);
+
+    await store.depositSavings(after1, 500);
+    expect(
+      store.savings.single.saved,
+      1000,
+      reason: 'already done, no further change',
+    );
+  });
+
+  test('withdrawSavings floors at zero and unshifts negative ledger', () async {
+    final store = await _freshStore('device-a');
+    final plan = await store.createSavingsPlan(
+      '应急',
+      goal: 5000,
+      firstDeposit: 1000,
+    );
+
+    await store.withdrawSavings(plan, 1500, note: '急用');
+    final after = store.savings.single;
+    expect(after.saved, 0, reason: 'floored at 0, only -1000 allowed');
+    expect(after.ledger.first.amount, -1000);
+    expect(after.ledger.first.note, '急用');
+    expect(after.ledger.length, 2);
+  });
+
+  test('savings updates sync between local stores via events', () async {
+    final first = await _freshStore('device-a');
+    final second = await _freshStore('device-b');
+
+    final plan = await first.createSavingsPlan(
+      '换新电脑',
+      goal: 20000,
+      firstDeposit: 2000,
+      dueAt: 1800000000000,
+      note: '攒着',
+    );
+    expect(first.savings, hasLength(1));
+
+    final events = await first.eventsAfterClock(await second.eventClock());
+    final applied = await second.applyRemoteEvents(events);
+    expect(applied, greaterThanOrEqualTo(1));
+    expect(second.savings, hasLength(1));
+    expect(second.savings.single.id, plan.id);
+    expect(second.savings.single.goal, 20000);
+    expect(second.savings.single.saved, 2000);
+    expect(second.savings.single.note, '攒着');
+    expect(second.savings.single.ledger.single.amount, 2000);
+
+    // Now deposit on first, sync delta to second.
+    await first.depositSavings(first.savings.single, 3000);
+    final delta = await first.eventsAfterClock(await second.eventClock());
+    await second.applyRemoteEvents(delta);
+    expect(second.savings.single.saved, 5000);
+    expect(second.savings.single.ledger.length, 2);
+  });
+
+  test('savings delete syncs as a tombstone', () async {
+    final first = await _freshStore('device-a');
+    final second = await _freshStore('device-b');
+
+    await first.createSavingsPlan('旅行', goal: 8000, firstDeposit: 500);
+    final secondPlan = first.savings.single;
+    await first.deleteSavingsPlan(secondPlan);
+    expect(first.savings, isEmpty);
+
+    final events = await first.eventsAfterClock(await second.eventClock());
+    await second.applyRemoteEvents(events);
+    expect(second.savings, isEmpty);
+  });
+
+  test('reload picks up savings from persisted rows', () async {
+    final store = await _freshStore('device-a');
+    await store.createSavingsPlan('A', goal: 1000, firstDeposit: 100);
+    await store.createSavingsPlan('B', goal: 2000, firstDeposit: 0);
+    await store.reload();
+    expect(store.savings, hasLength(2));
+    final names = store.savings.map((p) => p.name).toSet();
+    expect(names, containsAll(['A', 'B']));
   });
 }

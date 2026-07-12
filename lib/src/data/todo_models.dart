@@ -26,11 +26,13 @@ class TodoList {
   static const viewMyDayId = 'view-myday';
   static const viewImportantId = 'view-important';
   static const viewPlannedId = 'view-planned';
+  static const viewSavingsId = 'view-savings';
 
   static const virtualViewIds = <String>{
     viewMyDayId,
     viewImportantId,
     viewPlannedId,
+    viewSavingsId,
   };
 
   final String id;
@@ -227,6 +229,7 @@ class TodoItem {
     this.reminderAt,
     this.important = false,
     this.notes = '',
+    this.progress = 0,
   }) : sortOrder = sortOrder ?? createdAt;
 
   final String id;
@@ -244,6 +247,7 @@ class TodoItem {
   final int? reminderAt;
   final bool important;
   final String notes;
+  final int progress;
 
   TodoItem copyWith({
     String? title,
@@ -259,6 +263,7 @@ class TodoItem {
     Object? reminderAt = _notSet,
     bool? important,
     String? notes,
+    int? progress,
   }) {
     return TodoItem(
       id: id,
@@ -282,6 +287,7 @@ class TodoItem {
           : reminderAt as int?,
       important: important ?? this.important,
       notes: notes ?? this.notes,
+      progress: progress ?? this.progress,
     );
   }
 
@@ -302,6 +308,7 @@ class TodoItem {
       'reminderAt': reminderAt,
       'important': important,
       'notes': notes,
+      'progress': progress,
     };
   }
 
@@ -322,6 +329,7 @@ class TodoItem {
       reminderAt: json['reminderAt'] as int?,
       important: json['important'] as bool? ?? false,
       notes: json['notes'] as String? ?? '',
+      progress: (json['progress'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -342,6 +350,7 @@ class TodoItem {
       'reminder_at': reminderAt,
       'important': important ? 1 : 0,
       'notes': notes,
+      'progress': progress,
     };
   }
 
@@ -362,6 +371,7 @@ class TodoItem {
       reminderAt: row['reminder_at'] as int?,
       important: (row['important'] as int? ?? 0) == 1,
       notes: row['notes'] as String? ?? '',
+      progress: row['progress'] as int? ?? 0,
     );
   }
 }

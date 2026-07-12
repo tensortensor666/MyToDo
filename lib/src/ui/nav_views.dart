@@ -11,6 +11,7 @@ class TodoNavEntry {
     required this.accent,
     this.list,
     this.isCustomList = false,
+    this.isSavingsView = false,
   });
 
   final String id;
@@ -19,6 +20,7 @@ class TodoNavEntry {
   final Color accent;
   final TodoList? list;
   final bool isCustomList;
+  final bool isSavingsView;
 
   bool get isVirtual => list == null;
 }
@@ -87,6 +89,13 @@ List<TodoNavEntry> buildNavEntries(TodoStore store) {
         list: list,
         isCustomList: !list.isSystem,
       ),
+    TodoNavEntry(
+      id: TodoList.viewSavingsId,
+      name: '存钱清单',
+      icon: Icons.savings_outlined,
+      accent: kMsPrimary,
+      isSavingsView: true,
+    ),
   ];
 }
 
@@ -98,6 +107,8 @@ String subtitleForView(String id) {
       return '标记为重要的任务';
     case TodoList.viewPlannedId:
       return '按截止日期排序';
+    case TodoList.viewSavingsId:
+      return '把目标拆成一个个存钱计划，每次存一笔就推进一点点进度。';
     default:
       return '';
   }

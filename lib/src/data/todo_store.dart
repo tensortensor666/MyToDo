@@ -10,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
 import 'todo_models.dart';
+import 'savings_models.dart';
 
 class TodoStore extends ChangeNotifier {
   TodoStore._(this.device, this._db);
@@ -17,17 +18,19 @@ class TodoStore extends ChangeNotifier {
   static const _uuid = Uuid();
   static bool _ffiInitialized = false;
 
-  final LocalDevice device;
+  LocalDevice device;
   final Database _db;
   List<TodoItem> _todos = const [];
   List<TodoItem> _todoHistory = const [];
   List<TodoList> _lists = const [];
   List<RecurringTemplate> _recurringTemplates = const [];
+  List<SavingsPlan> _savings = const [];
 
   List<TodoItem> get todos => _todos;
   List<TodoItem> get todoHistory => _todoHistory;
   List<TodoList> get lists => _lists;
   List<RecurringTemplate> get recurringTemplates => _recurringTemplates;
+  List<SavingsPlan> get savings => _savings;
 
   static Future<TodoStore> open() async {
     if (!kIsWeb &&
@@ -57,6 +60,7 @@ class TodoStore extends ChangeNotifier {
 
     final store = TodoStore._(LocalDevice(deviceId: deviceId, name: name), db);
     await store.reload();
+    await store.seedPrototypeDataIfEmpty();
     await store.ensureDailyRecurringTodos();
     return store;
   }
@@ -138,7 +142,8 @@ CREATE TABLE IF NOT EXISTS todos (
   due_at INTEGER,
   reminder_at INTEGER,
   notes TEXT NOT NULL DEFAULT '',
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  progress INTEGER NOT NULL DEFAULT 0
 )
 ''');
     await _ensureTodoColumns(db);
@@ -178,6 +183,22 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
 )
 ''');
     await _ensureRecurringTemplateColumns(db);
+    await db.execute('''
+CREATE TABLE IF NOT EXISTS savings_plans (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  goal INTEGER NOT NULL DEFAULT 0,
+  saved INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  due_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  ledger TEXT NOT NULL DEFAULT '[]'
+)
+''');
+    await _ensureSavingsColumns(db);
     await db.execute(
       'CREATE INDEX IF NOT EXISTS events_device_seq_idx ON events(device_id, seq)',
     );
@@ -236,6 +257,11 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       );
       await db.execute('UPDATE todos SET sort_order = created_at');
     }
+    if (!columns.contains('progress')) {
+      await db.execute(
+        'ALTER TABLE todos ADD COLUMN progress INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 
   static Future<void> _ensureListColumns(DatabaseExecutor db) async {
@@ -256,6 +282,26 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     }
   }
 
+  static Future<void> _ensureSavingsColumns(DatabaseExecutor db) async {
+    final columns = await _tableColumns(db, 'savings_plans');
+    if (columns.isEmpty) {
+      return;
+    }
+    if (!columns.contains('deleted')) {
+      await db.execute(
+        'ALTER TABLE savings_plans ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!columns.contains('ledger')) {
+      await db.execute(
+        'ALTER TABLE savings_plans ADD COLUMN ledger TEXT NOT NULL DEFAULT \'[]\'',
+      );
+    }
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS savings_plans_deleted_idx ON savings_plans(deleted, sort_order, created_at)',
+    );
+  }
+
   static Future<Set<String>> _tableColumns(
     DatabaseExecutor db,
     String tableName,
@@ -270,7 +316,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       'todo_lists',
       TodoList(
         id: TodoList.inboxId,
-        name: '全部',
+        name: '收件箱',
         sortOrder: 0,
         isSystem: true,
         createdAt: now,
@@ -313,6 +359,17 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     }
   }
 
+  Future<void> updateDeviceName(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == device.name) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('deviceName', trimmed);
+    device = LocalDevice(deviceId: device.deviceId, name: trimmed);
+    notifyListeners();
+  }
+
   Future<void> reload() async {
     await _ensureSystemLists(_db);
     final listRows = await _db.query(
@@ -333,13 +390,246 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       where: 'deleted = 0',
       orderBy: 'completed ASC, sort_order ASC, created_at ASC, updated_at DESC',
     );
+    final savingsRows = await _db.query(
+      'savings_plans',
+      where: 'deleted = 0',
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
     _lists = listRows.map(TodoList.fromDb).toList(growable: false);
     _recurringTemplates = templateRows
         .map(RecurringTemplate.fromDb)
         .toList(growable: false);
     _todoHistory = historyRows.map(TodoItem.fromDb).toList(growable: false);
     _todos = rows.map(TodoItem.fromDb).toList(growable: false);
+    _savings = savingsRows.map(SavingsPlan.fromDb).toList(growable: false);
     notifyListeners();
+  }
+
+  @visibleForTesting
+  Future<bool> seedPrototypeDataIfEmpty({DateTime? now}) async {
+    final hasUserData =
+        _todoHistory.isNotEmpty ||
+        _lists.any((list) => !list.isSystem) ||
+        _recurringTemplates.isNotEmpty ||
+        _savings.isNotEmpty;
+    if (hasUserData) {
+      return false;
+    }
+
+    final effectiveNow = now ?? DateTime.now();
+    final today = DateTime(
+      effectiveNow.year,
+      effectiveNow.month,
+      effectiveNow.day,
+    );
+    final todayTaskDate = _formatTaskDate(today);
+
+    int at(int month, int day, int hour, int minute) {
+      return DateTime(
+        effectiveNow.year,
+        month,
+        day,
+        hour,
+        minute,
+      ).millisecondsSinceEpoch;
+    }
+
+    int todayAt(int hour, int minute) {
+      return DateTime(
+        today.year,
+        today.month,
+        today.day,
+        hour,
+        minute,
+      ).millisecondsSinceEpoch;
+    }
+
+    int dueDate(int year, int month, int day) {
+      return DateTime(year, month, day, 23, 59, 59).millisecondsSinceEpoch;
+    }
+
+    int ledgerDate(int month, int day) {
+      return DateTime(effectiveNow.year, month, day, 12).millisecondsSinceEpoch;
+    }
+
+    final workList = TodoList(
+      id: 'prototype-work',
+      name: '工作',
+      sortOrder: 1000,
+      isSystem: false,
+      createdAt: at(6, 27, 8, 0),
+      updatedAt: at(6, 27, 8, 0),
+      color: 0xFF5F7F62,
+    );
+    final lifeList = TodoList(
+      id: 'prototype-life',
+      name: '生活',
+      sortOrder: 2000,
+      isSystem: false,
+      createdAt: at(6, 27, 8, 1),
+      updatedAt: at(6, 27, 8, 1),
+      color: 0xFFC96442,
+    );
+
+    final prototypeTodos = <TodoItem>[
+      TodoItem(
+        id: 'prototype-task-weekly-shopping',
+        title: '整理周末采购清单',
+        completed: false,
+        deleted: false,
+        createdAt: at(6, 27, 8, 30),
+        updatedAt: at(6, 27, 8, 30),
+        sortOrder: 1000,
+        listId: TodoList.inboxId,
+        taskDate: todayTaskDate,
+        dueAt: todayAt(18, 0),
+        important: true,
+        notes: '采购清单已经整理到笔记里，优先确认预算和缺货项。',
+      ),
+      TodoItem(
+        id: 'prototype-task-sync-devices',
+        title: '同步 Windows 和 Android 设备',
+        completed: false,
+        deleted: false,
+        createdAt: at(6, 27, 9, 10),
+        updatedAt: at(6, 27, 9, 10),
+        sortOrder: 2000,
+        listId: workList.id,
+        taskDate: todayTaskDate,
+        reminderAt: todayAt(20, 0),
+        notes: '检查 Windows 和 Android 端是否都能完成拉取与推送。',
+      ),
+      TodoItem(
+        id: 'prototype-task-overdue-invoice',
+        title: '处理过期发票',
+        completed: false,
+        deleted: false,
+        createdAt: at(6, 26, 14, 20),
+        updatedAt: at(6, 26, 14, 20),
+        sortOrder: 3000,
+        listId: workList.id,
+        taskDate: todayTaskDate,
+        dueAt: at(6, 26, 18, 0),
+        important: true,
+        notes: '补开票信息并记录处理结果。',
+      ),
+      TodoItem(
+        id: 'prototype-task-update-check',
+        title: '检查应用内更新页面',
+        completed: true,
+        deleted: false,
+        createdAt: at(6, 27, 10, 50),
+        updatedAt: todayAt(11, 32),
+        sortOrder: 4000,
+        listId: TodoList.inboxId,
+        taskDate: todayTaskDate,
+        dueAt: todayAt(11, 30),
+        notes: '检查安装包更新入口和下载镜像文案。',
+        progress: 100,
+      ),
+    ];
+
+    final prototypeSavings = <SavingsPlan>[
+      SavingsPlan(
+        id: 'prototype-savings-emergency',
+        name: '应急备用金',
+        goal: 20000,
+        saved: 7000,
+        note: '目标 3 个月生活费',
+        dueAt: dueDate(2026, 9, 30),
+        createdAt: at(6, 18, 12, 0),
+        updatedAt: at(7, 2, 12, 0),
+        sortOrder: 1000,
+        ledger: [
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(6, 18),
+            amount: 2000,
+            note: '月初结余转入',
+          ),
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(6, 25),
+            amount: 3000,
+            note: '奖金到账',
+          ),
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(7, 2),
+            amount: 2000,
+            note: '每月固定存入',
+          ),
+        ],
+      ),
+      SavingsPlan(
+        id: 'prototype-savings-travel',
+        name: '旅行基金',
+        goal: 15000,
+        saved: 2000,
+        note: '目标 9 月前攒齐',
+        dueAt: dueDate(2026, 11, 30),
+        createdAt: at(7, 5, 12, 0),
+        updatedAt: at(7, 8, 12, 0),
+        sortOrder: 2000,
+        ledger: [
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(7, 5),
+            amount: 1500,
+            note: '压岁钱转入',
+          ),
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(7, 8),
+            amount: 500,
+            note: '零钱存入',
+          ),
+        ],
+      ),
+      SavingsPlan(
+        id: 'prototype-savings-device',
+        name: '新设备款',
+        goal: 8000,
+        saved: 8000,
+        note: '目标已达成',
+        createdAt: at(6, 20, 12, 0),
+        updatedAt: at(7, 1, 12, 0),
+        sortOrder: 3000,
+        ledger: [
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(6, 20),
+            amount: 3000,
+            note: '首笔',
+          ),
+          SavingsLedgerEntry(
+            dateMs: ledgerDate(7, 1),
+            amount: 5000,
+            note: '尾款凑齐',
+          ),
+        ],
+      ),
+    ];
+
+    await _writeLocalEntityEvents([
+      _PendingEntityEvent(
+        type: 'list.upsert',
+        entityId: workList.id,
+        payload: workList.toJson(),
+      ),
+      _PendingEntityEvent(
+        type: 'list.upsert',
+        entityId: lifeList.id,
+        payload: lifeList.toJson(),
+      ),
+      for (final todo in prototypeTodos)
+        _PendingEntityEvent(
+          type: 'todo.upsert',
+          entityId: todo.id,
+          payload: todo.toJson(),
+        ),
+      for (final plan in prototypeSavings)
+        _PendingEntityEvent(
+          type: 'savings.upsert',
+          entityId: plan.id,
+          payload: plan.toJson(),
+        ),
+    ]);
+    return true;
   }
 
   TodoList? listById(String id) {
@@ -564,6 +854,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     int? reminderAt,
     bool important = false,
     String notes = '',
+    int progress = 0,
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -584,6 +875,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       important: important,
       notes: notes.trim(),
       sortOrder: sortOrder,
+      progress: progress.clamp(0, 100),
     );
     await _writeLocalTodoEvent('todo.upsert', todo);
   }
@@ -596,6 +888,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     required String listId,
     bool? important,
     String? notes,
+    int? progress,
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -603,12 +896,16 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
     }
     final nextImportant = important ?? todo.important;
     final nextNotes = notes?.trim() ?? todo.notes;
+    final nextProgress = progress == null
+        ? todo.progress
+        : progress.clamp(0, 100);
     if (trimmed == todo.title &&
         dueAt == todo.dueAt &&
         reminderAt == todo.reminderAt &&
         listId == todo.listId &&
         nextImportant == todo.important &&
-        nextNotes == todo.notes) {
+        nextNotes == todo.notes &&
+        nextProgress == todo.progress) {
       return;
     }
     final sortOrder = listId == todo.listId
@@ -623,6 +920,7 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
         reminderAt: reminderAt,
         important: nextImportant,
         notes: nextNotes,
+        progress: nextProgress,
         sortOrder: sortOrder,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
@@ -630,10 +928,30 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
   }
 
   Future<void> setCompleted(TodoItem todo, bool completed) async {
+    final nextProgress = completed
+        ? 100
+        : (todo.progress >= 100 ? 80 : todo.progress);
     await _writeLocalTodoEvent(
       'todo.upsert',
       todo.copyWith(
         completed: completed,
+        progress: nextProgress,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  Future<void> setProgress(TodoItem todo, int progress) async {
+    final clamped = progress.clamp(0, 100);
+    if (clamped == todo.progress && (clamped == 100) == todo.completed) {
+      return;
+    }
+    final nextCompleted = clamped >= 100;
+    await _writeLocalTodoEvent(
+      'todo.upsert',
+      todo.copyWith(
+        progress: clamped,
+        completed: nextCompleted,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     );
@@ -721,6 +1039,150 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       return;
     }
     await _writeLocalTodoEvents('todo.upsert', updates);
+  }
+
+  // ── 存钱计划 ───────────────────────────────────────────
+  Future<void> _writeSavingsEvent(String type, SavingsPlan plan) async {
+    await _writeLocalEntityEvent(type, plan.id, plan.toJson());
+  }
+
+  Future<int> _nextSavingsSortOrder() async {
+    final rows = await _db.rawQuery(
+      'SELECT MAX(sort_order) AS max_sort FROM savings_plans WHERE deleted = 0',
+    );
+    return (Sqflite.firstIntValue(rows) ?? 0) + 1000;
+  }
+
+  Future<SavingsPlan> createSavingsPlan(
+    String name, {
+    required int goal,
+    int firstDeposit = 0,
+    int? dueAt,
+    String note = '',
+  }) async {
+    final trimmed = name.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final sortOrder = await _nextSavingsSortOrder();
+    final first = firstDeposit > 0 ? firstDeposit : 0;
+    final initialLedger = first > 0
+        ? [SavingsLedgerEntry(dateMs: now, amount: first, note: '首笔')]
+        : const <SavingsLedgerEntry>[];
+    final plan = SavingsPlan(
+      id: _uuid.v4(),
+      name: trimmed.isEmpty ? '存钱计划' : trimmed,
+      goal: goal < 0 ? 0 : goal,
+      saved: first,
+      note: note.trim(),
+      dueAt: dueAt,
+      createdAt: now,
+      updatedAt: now,
+      sortOrder: sortOrder,
+      ledger: initialLedger,
+    );
+    await _writeSavingsEvent('savings.upsert', plan);
+    return savings.firstWhere((p) => p.id == plan.id, orElse: () => plan);
+  }
+
+  Future<void> updateSavingsPlan(
+    SavingsPlan plan, {
+    required String name,
+    required int goal,
+    int? dueAt,
+    String? note,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+    final nextNote = note?.trim() ?? plan.note;
+    final nextGoal = goal < 0 ? 0 : goal;
+    if (trimmed == plan.name &&
+        nextGoal == plan.goal &&
+        dueAt == plan.dueAt &&
+        nextNote == plan.note) {
+      return;
+    }
+    await _writeSavingsEvent(
+      'savings.upsert',
+      plan.copyWith(
+        name: trimmed,
+        goal: nextGoal,
+        note: nextNote,
+        dueAt: dueAt,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  Future<void> deleteSavingsPlan(SavingsPlan plan) async {
+    await _writeSavingsEvent(
+      'savings.delete',
+      plan.copyWith(
+        deleted: true,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  Future<void> depositSavings(
+    SavingsPlan plan,
+    int amount, {
+    String? note,
+  }) async {
+    final add = amount.round();
+    if (add <= 0) {
+      return;
+    }
+    final before = plan.saved;
+    final cap = plan.goal > 0 ? plan.goal : add + before;
+    final after = (before + add).clamp(0, cap).toInt();
+    final actual = after - before;
+    if (actual == 0) {
+      return;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ledger = [
+      SavingsLedgerEntry(
+        dateMs: now,
+        amount: actual,
+        note: note?.trim() ?? '存入',
+      ),
+      ...plan.ledger,
+    ];
+    await _writeSavingsEvent(
+      'savings.upsert',
+      plan.copyWith(saved: after, ledger: ledger, updatedAt: now),
+    );
+  }
+
+  Future<void> withdrawSavings(
+    SavingsPlan plan,
+    int amount, {
+    String? note,
+  }) async {
+    final sub = amount.round();
+    if (sub <= 0) {
+      return;
+    }
+    final before = plan.saved;
+    final after = (before - sub).clamp(0, before).toInt();
+    final actual = before - after;
+    if (actual == 0) {
+      return;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ledger = [
+      SavingsLedgerEntry(
+        dateMs: now,
+        amount: -actual,
+        note: note?.trim() ?? '取出',
+      ),
+      ...plan.ledger,
+    ];
+    await _writeSavingsEvent(
+      'savings.upsert',
+      plan.copyWith(saved: after, ledger: ledger, updatedAt: now),
+    );
   }
 
   Future<void> _writeLocalTodoEvent(String type, TodoItem todo) async {
@@ -859,7 +1321,35 @@ CREATE TABLE IF NOT EXISTS recurring_templates (
       case 'template.delete':
         await _applyTemplateEventInTransaction(txn, event);
         return;
+      case 'savings.upsert':
+      case 'savings.delete':
+        await _applySavingsEventInTransaction(txn, event);
+        return;
     }
+  }
+
+  Future<void> _applySavingsEventInTransaction(
+    Transaction txn,
+    TodoEvent event,
+  ) async {
+    final incoming = SavingsPlan.fromJson(event.payload);
+    final existingRows = await txn.query(
+      'savings_plans',
+      where: 'id = ?',
+      whereArgs: [incoming.id],
+      limit: 1,
+    );
+    if (existingRows.isNotEmpty) {
+      final existing = SavingsPlan.fromDb(existingRows.first);
+      if (incoming.updatedAt < existing.updatedAt) {
+        return;
+      }
+    }
+    await txn.insert(
+      'savings_plans',
+      incoming.toDb(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<void> _applyTodoEventInTransaction(
