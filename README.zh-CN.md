@@ -70,9 +70,9 @@ flutter build windows --release
 推送版本标签即可通过 GitHub Actions 自动构建发布：
 
 ```powershell
-git tag -a v1.5.0 -m "MyTodo 1.5.0"
+git tag -a v1.5.1 -m "MyTodo 1.5.1"
 git push origin main
-git push origin v1.5.0
+git push origin v1.5.1
 ```
 
 [发布工作流](.github/workflows/release.yml) 自动上传 Android 分包 APK、Windows x64 便携版、安装程序和 SHA256 校验文件。

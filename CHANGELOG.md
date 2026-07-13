@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 - 2026-07-13
+
+- Added task deletion to the Android editor with confirmation and one-step undo.
+- Fixed the delete undo notification so it dismisses automatically after four seconds.
+- Added live count badges to the Android current, overdue, and completed filters.
+
 ## 1.5.0 - 2026-07-12
 
 - Added savings plans with deposits, withdrawals, progress tracking, local persistence, and cross-device sync.
