@@ -17,7 +17,9 @@ import 'src/ui/theme/app_theme.dart';
 import 'src/ui/nav_views.dart';
 import 'src/ui/important_toggle_button.dart';
 import 'src/ui/reorder_items.dart';
+import 'src/ui/todo_filter_tab_content.dart';
 import 'src/ui/todo_view_filter.dart';
+import 'src/ui/todo_editor_delete_section.dart';
 import 'src/update/update_page.dart';
 
 const Color _appAccent = Color(0xFFC96442);
@@ -4412,13 +4414,12 @@ class _OverviewTile extends StatelessWidget {
           ),
           child: compact
               ? Center(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: selected ? _appForeground : _appMuted,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    ),
+                  child: TodoFilterTabContent(
+                    label: label,
+                    count: value,
+                    color: color,
+                    accentColor: _appAccent,
+                    selected: selected,
                   ),
                 )
               : Row(
@@ -5023,6 +5024,11 @@ Future<void> _showTodoEditorDialog(
   var reminderAt = todo?.reminderAt;
   _TodoEditorResult? result;
   final editorTitle = todo == null ? title : '编辑任务';
+  final compactEditor =
+      MediaQuery.sizeOf(context).width < 640 ||
+      Platform.isAndroid ||
+      Platform.isIOS;
+  final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
 
   Future<void> pickDateTime({
     required BuildContext dialogContext,
@@ -5063,6 +5069,7 @@ Future<void> _showTodoEditorDialog(
     required BuildContext dialogContext,
     required void Function(void Function()) setDialogState,
     required Future<void> Function() save,
+    required Future<void> Function(String title)? deleteTodo,
   }) {
     return _TodoEditorContent(
       titleController: titleController,
@@ -5106,6 +5113,8 @@ Future<void> _showTodoEditorDialog(
       onClearReminderAt: reminderAt == null || repeat == _TodoRepeat.daily
           ? null
           : () => setDialogState(() => reminderAt = null),
+      onDelete: deleteTodo,
+      deleteFallbackTitle: todo?.title,
     );
   }
 
@@ -5142,11 +5151,35 @@ Future<void> _showTodoEditorDialog(
     };
   }
 
+  Future<void> Function(String title)? buildDelete(
+    Future<void> Function([_TodoEditorResult?]) close,
+  ) {
+    final existingTodo = todo;
+    if (!compactEditor || existingTodo == null) {
+      return null;
+    }
+    return (deleteTitle) async {
+      final todoForDeletion = existingTodo.copyWith(title: deleteTitle);
+      await close();
+      await controller.store.deleteTodo(todoForDeletion);
+      scaffoldMessenger?.hideCurrentSnackBar();
+      scaffoldMessenger?.showSnackBar(
+        buildTodoDeleteUndoSnackBar(
+          title: deleteTitle,
+          onUndo: () {
+            unawaited(() async {
+              await controller.store.restoreTodo(todoForDeletion);
+              scaffoldMessenger.showSnackBar(
+                SnackBar(content: Text('已恢复“$deleteTitle”')),
+              );
+            }());
+          },
+        ),
+      );
+    };
+  }
+
   try {
-    final compactEditor =
-        MediaQuery.sizeOf(context).width < 640 ||
-        Platform.isAndroid ||
-        Platform.isIOS;
     if (compactEditor) {
       result = await showModalBottomSheet<_TodoEditorResult>(
         context: context,
@@ -5159,6 +5192,7 @@ Future<void> _showTodoEditorDialog(
             builder: (dialogContext, setDialogState) {
               final close = buildClose(dialogContext);
               final save = buildSave(close);
+              final deleteTodo = buildDelete(close);
               final size = MediaQuery.sizeOf(dialogContext);
               return PopScope<_TodoEditorResult>(
                 canPop: false,
@@ -5231,6 +5265,7 @@ Future<void> _showTodoEditorDialog(
                                     dialogContext: dialogContext,
                                     setDialogState: setDialogState,
                                     save: save,
+                                    deleteTodo: deleteTodo,
                                   ),
                                 ),
                               ),
@@ -5355,6 +5390,7 @@ Future<void> _showTodoEditorDialog(
                                       dialogContext: dialogContext,
                                       setDialogState: setDialogState,
                                       save: save,
+                                      deleteTodo: null,
                                     ),
                                   ),
                                 ),
@@ -5628,6 +5664,8 @@ class _TodoEditorContent extends StatelessWidget {
     required this.onClearDueAt,
     required this.onPickReminderAt,
     required this.onClearReminderAt,
+    required this.onDelete,
+    required this.deleteFallbackTitle,
   });
 
   final TextEditingController titleController;
@@ -5645,6 +5683,8 @@ class _TodoEditorContent extends StatelessWidget {
   final VoidCallback? onClearDueAt;
   final VoidCallback? onPickReminderAt;
   final VoidCallback? onClearReminderAt;
+  final Future<void> Function(String title)? onDelete;
+  final String? deleteFallbackTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -5754,6 +5794,14 @@ class _TodoEditorContent extends StatelessWidget {
             contentPadding: EdgeInsets.fromLTRB(16, 16, 16, 16),
           ),
         ),
+        if (onDelete != null) ...[
+          const SizedBox(height: 24),
+          TodoEditorDeleteSection(
+            titleController: titleController,
+            fallbackTitle: deleteFallbackTitle!,
+            onConfirmed: onDelete!,
+          ),
+        ],
       ],
     );
   }
