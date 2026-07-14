@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0 - 2026-07-14
+
+- Simplified the Android task status switcher to Current and Completed while keeping overdue tasks prioritized inside Current.
+- Added overdue count badges, stronger overdue task styling, and a quick overdue-only view.
+- Added cancellation of daily recurrence from the task editor while retaining the current task.
+- Synced recurrence cancellation across devices so archived templates stop generating future tasks.
+
 ## 1.5.1 - 2026-07-13
 
 - Added task deletion to the Android editor with confirmation and one-step undo.

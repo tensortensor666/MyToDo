@@ -18,6 +18,8 @@ import 'src/ui/nav_views.dart';
 import 'src/ui/important_toggle_button.dart';
 import 'src/ui/reorder_items.dart';
 import 'src/ui/todo_filter_tab_content.dart';
+import 'src/ui/todo_mobile_status_overview.dart';
+import 'src/ui/todo_repeat_selector.dart';
 import 'src/ui/todo_view_filter.dart';
 import 'src/ui/todo_editor_delete_section.dart';
 import 'src/update/update_page.dart';
@@ -36,8 +38,8 @@ const Color _appBorderSoft = Color(0xFFE8E6DC);
 const Color _appWarn = Color(0xFFEAB308);
 const Color _appDanger = Color(0xFFB53333);
 const Color _appSuccess = Color(0xFF17A34A);
-const String _appVersionLabel = 'v1.5.1';
-const String _appBuildLabel = '构建 2026.07.13';
+const String _appVersionLabel = 'v1.6.0';
+const String _appBuildLabel = '构建 2026.07.14';
 const String _appDistributionLabel = 'Windows / Android 同步版';
 
 Future<void> main() async {
@@ -2267,11 +2269,10 @@ class _TodoContentPageState extends State<_TodoContentPage> {
       );
     }
     final todos = widget.controller.store.visibleTodosForList(widget.entry.id);
-    final filteredTodos = filterTodosByView(
-      todos,
-      _filter,
-      DateTime.now().millisecondsSinceEpoch,
-    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final filteredTodos = widget.compact
+        ? filterTodosByCompactView(todos, _filter, now)
+        : filterTodosByView(todos, _filter, now);
     final list = _TodoList(
       todos: filteredTodos,
       controller: widget.controller,
@@ -4296,6 +4297,15 @@ class _TodoOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final counts = countTodosByView(todos, now);
+    if (compact) {
+      return TodoMobileStatusOverview(
+        counts: counts,
+        selectedFilter: selectedFilter,
+        onFilterChanged: onFilterChanged,
+        accentColor: _appAccent,
+        successColor: _appSuccess,
+      );
+    }
     final tiles = [
       _OverviewTile(
         label: '当前',
@@ -4322,36 +4332,16 @@ class _TodoOverview extends StatelessWidget {
         onTap: () => onFilterChanged(TodoViewFilter.completed),
       ),
     ];
-    if (!compact) {
-      tiles.add(
-        _OverviewTile(
-          label: '全部',
-          value: todos.length,
-          selected: selectedFilter == TodoViewFilter.all,
-          color: _appForegroundSoft,
-          compact: compact,
-          onTap: () => onFilterChanged(TodoViewFilter.all),
-        ),
-      );
-    }
-    if (compact) {
-      return Container(
-        padding: const EdgeInsets.all(5),
-        decoration: BoxDecoration(
-          color: Color.lerp(_appSurface, _appSurfaceWarm, 0.24),
-          border: Border.all(color: _appBorder),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          children: [
-            for (var index = 0; index < tiles.length; index++) ...[
-              Expanded(child: tiles[index]),
-              if (index != tiles.length - 1) const SizedBox(width: 6),
-            ],
-          ],
-        ),
-      );
-    }
+    tiles.add(
+      _OverviewTile(
+        label: '全部',
+        value: todos.length,
+        selected: selectedFilter == TodoViewFilter.all,
+        color: _appForegroundSoft,
+        compact: compact,
+        onTap: () => onFilterChanged(TodoViewFilter.all),
+      ),
+    );
     return Wrap(spacing: 10, runSpacing: 10, children: tiles);
   }
 }
@@ -4669,10 +4659,17 @@ class _TodoTile extends StatelessWidget {
     final inactive = todo.deleted || todo.completed;
     final scheme = Theme.of(context).colorScheme;
     final borderColor = _todoBorderColor(context, todo);
+    final overdue =
+        compact &&
+        !todo.deleted &&
+        !todo.completed &&
+        isTodoOverdue(todo, DateTime.now().millisecondsSinceEpoch);
     final background = todo.deleted
         ? scheme.errorContainer.withValues(alpha: 0.22)
         : todo.completed
         ? Color.lerp(_appSurface, _appSurfaceWarm, 0.84)!
+        : overdue
+        ? Color.lerp(_appSurface, scheme.errorContainer, 0.22)!
         : _appSurface;
     return Material(
       color: Colors.transparent,
@@ -4692,7 +4689,7 @@ class _TodoTile extends StatelessWidget {
           padding: EdgeInsets.all(compact ? 14 : 12),
           decoration: BoxDecoration(
             color: background,
-            border: Border.all(color: borderColor),
+            border: Border.all(color: borderColor, width: overdue ? 1.2 : 1),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
@@ -5019,9 +5016,20 @@ Future<void> _showTodoEditorDialog(
         ? TodoList.inboxId
         : lists.first.id;
   }
-  var repeat = todo == null ? _TodoRepeat.none : _TodoRepeat.none;
+  final recurringTemplate = controller.store.recurringTemplateById(
+    todo?.templateId,
+  );
+  final repeatStartedAsDaily =
+      recurringTemplate != null && !recurringTemplate.archived;
+  var repeat = repeatStartedAsDaily
+      ? TodoRepeatOption.daily
+      : TodoRepeatOption.none;
   var dueAt = todo?.dueAt ?? initialDueAt;
   var reminderAt = todo?.reminderAt;
+  if (repeat == TodoRepeatOption.daily) {
+    dueAt = null;
+    reminderAt = null;
+  }
   _TodoEditorResult? result;
   final editorTitle = todo == null ? title : '编辑任务';
   final compactEditor =
@@ -5077,7 +5085,8 @@ Future<void> _showTodoEditorDialog(
       lists: lists,
       selectedListId: selectedListId,
       repeat: repeat,
-      showRepeat: todo == null,
+      showRepeat: todo == null || recurringTemplate != null,
+      repeatStartedAsDaily: repeatStartedAsDaily,
       dueAt: dueAt,
       reminderAt: reminderAt,
       onSaveTitle: save,
@@ -5085,13 +5094,13 @@ Future<void> _showTodoEditorDialog(
       onRepeatChanged: (value) {
         setDialogState(() {
           repeat = value;
-          if (repeat == _TodoRepeat.daily) {
+          if (repeat == TodoRepeatOption.daily) {
             dueAt = null;
             reminderAt = null;
           }
         });
       },
-      onPickDueAt: repeat == _TodoRepeat.daily
+      onPickDueAt: repeat == TodoRepeatOption.daily
           ? null
           : () => pickDateTime(
               dialogContext: dialogContext,
@@ -5099,10 +5108,10 @@ Future<void> _showTodoEditorDialog(
               currentValue: dueAt,
               onChanged: (value) => dueAt = value,
             ),
-      onClearDueAt: dueAt == null || repeat == _TodoRepeat.daily
+      onClearDueAt: dueAt == null || repeat == TodoRepeatOption.daily
           ? null
           : () => setDialogState(() => dueAt = null),
-      onPickReminderAt: repeat == _TodoRepeat.daily
+      onPickReminderAt: repeat == TodoRepeatOption.daily
           ? null
           : () => pickDateTime(
               dialogContext: dialogContext,
@@ -5110,7 +5119,7 @@ Future<void> _showTodoEditorDialog(
               currentValue: reminderAt,
               onChanged: (value) => reminderAt = value,
             ),
-      onClearReminderAt: reminderAt == null || repeat == _TodoRepeat.daily
+      onClearReminderAt: reminderAt == null || repeat == TodoRepeatOption.daily
           ? null
           : () => setDialogState(() => reminderAt = null),
       onDelete: deleteTodo,
@@ -5443,7 +5452,7 @@ Future<void> _showTodoEditorDialog(
     return;
   }
   if (todo == null) {
-    if (result.repeat == _TodoRepeat.daily) {
+    if (result.repeat == TodoRepeatOption.daily) {
       await controller.store.createRecurringTemplate(
         result.title,
         listId: result.listId,
@@ -5456,6 +5465,33 @@ Future<void> _showTodoEditorDialog(
         dueAt: result.dueAt,
         reminderAt: result.reminderAt,
         important: initialImportant,
+        notes: result.notes,
+      );
+    }
+  } else if (recurringTemplate != null) {
+    if (result.repeat == TodoRepeatOption.none) {
+      await controller.store.cancelTodoRecurrence(
+        todo,
+        recurringTemplate,
+        title: result.title,
+        dueAt: result.dueAt,
+        reminderAt: result.reminderAt,
+        listId: result.listId,
+        notes: result.notes,
+      );
+    } else {
+      await controller.store.updateRecurringTemplate(
+        recurringTemplate,
+        title: result.title,
+        listId: result.listId,
+        notes: result.notes,
+      );
+      await controller.store.updateTodo(
+        todo,
+        title: result.title,
+        dueAt: null,
+        reminderAt: null,
+        listId: result.listId,
         notes: result.notes,
       );
     }
@@ -5655,6 +5691,7 @@ class _TodoEditorContent extends StatelessWidget {
     required this.selectedListId,
     required this.repeat,
     required this.showRepeat,
+    required this.repeatStartedAsDaily,
     required this.dueAt,
     required this.reminderAt,
     required this.onSaveTitle,
@@ -5672,13 +5709,14 @@ class _TodoEditorContent extends StatelessWidget {
   final TextEditingController notesController;
   final List<TodoList> lists;
   final String selectedListId;
-  final _TodoRepeat repeat;
+  final TodoRepeatOption repeat;
   final bool showRepeat;
+  final bool repeatStartedAsDaily;
   final int? dueAt;
   final int? reminderAt;
   final Future<void> Function() onSaveTitle;
   final ValueChanged<String> onListChanged;
-  final ValueChanged<_TodoRepeat> onRepeatChanged;
+  final ValueChanged<TodoRepeatOption> onRepeatChanged;
   final VoidCallback? onPickDueAt;
   final VoidCallback? onClearDueAt;
   final VoidCallback? onPickReminderAt;
@@ -5736,25 +5774,12 @@ class _TodoEditorContent extends StatelessWidget {
         if (showRepeat) ...[
           const SizedBox(height: 18),
           const _EditorFieldLabel('重复'),
-          DropdownButtonFormField<_TodoRepeat>(
-            initialValue: repeat,
-            isExpanded: true,
-            icon: const Icon(Icons.keyboard_arrow_down),
-            decoration: const InputDecoration(),
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: _appForeground,
-              fontWeight: FontWeight.w500,
-            ),
-            dropdownColor: _appSurface,
-            items: const [
-              DropdownMenuItem(value: _TodoRepeat.none, child: Text('不重复')),
-              DropdownMenuItem(value: _TodoRepeat.daily, child: Text('每天')),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                onRepeatChanged(value);
-              }
-            },
+          TodoRepeatSelector(
+            value: repeat,
+            startedAsDaily: repeatStartedAsDaily,
+            accentColor: _appAccent,
+            warningColor: _appWarn,
+            onChanged: onRepeatChanged,
           ),
         ],
         const SizedBox(height: 18),
@@ -5763,7 +5788,7 @@ class _TodoEditorContent extends StatelessWidget {
           value: dueAt,
           emptyLabel: '年 /月/日  --:--',
           icon: Icons.calendar_today_outlined,
-          enabled: repeat != _TodoRepeat.daily,
+          enabled: repeat != TodoRepeatOption.daily,
           onPick: onPickDueAt,
           onClear: onClearDueAt,
         ),
@@ -5773,7 +5798,7 @@ class _TodoEditorContent extends StatelessWidget {
           value: reminderAt,
           emptyLabel: '年 /月/日  --:--',
           icon: Icons.calendar_today_outlined,
-          enabled: repeat != _TodoRepeat.daily,
+          enabled: repeat != TodoRepeatOption.daily,
           onPick: onPickReminderAt,
           onClear: onClearReminderAt,
         ),
@@ -5841,13 +5866,11 @@ class _TodoEditorResult {
 
   final String title;
   final String listId;
-  final _TodoRepeat repeat;
+  final TodoRepeatOption repeat;
   final int? dueAt;
   final int? reminderAt;
   final String notes;
 }
-
-enum _TodoRepeat { none, daily }
 
 class _TodoListEditorResult {
   const _TodoListEditorResult({required this.name, required this.color});

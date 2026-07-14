@@ -70,9 +70,9 @@ flutter build windows --release
 Push a version tag to build and publish a GitHub Release automatically:
 
 ```powershell
-git tag -a v1.5.1 -m "MyTodo 1.5.1"
+git tag -a v1.6.0 -m "MyTodo 1.6.0"
 git push origin main
-git push origin v1.5.1
+git push origin v1.6.0
 ```
 
 The [release workflow](.github/workflows/release.yml) uploads split Android APKs, a Windows x64 zip, a Windows installer, and SHA256 checksums.

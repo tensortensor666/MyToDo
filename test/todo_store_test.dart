@@ -355,6 +355,52 @@ void main() {
     );
   });
 
+  test(
+    'cancelling recurrence keeps the current task and stops future generation',
+    () async {
+      final first = await _freshStore('device-a');
+      final second = await _freshStore('device-b');
+      final template = await first.createRecurringTemplate(
+        'Daily check-in',
+        listId: TodoList.inboxId,
+        notes: 'Original note',
+      );
+      final currentTodo = first.todos.single;
+
+      await first.cancelTodoRecurrence(
+        currentTodo,
+        template,
+        title: 'Final check-in',
+        dueAt: 2000,
+        reminderAt: 1500,
+        listId: TodoList.inboxId,
+        notes: 'Keep this task',
+      );
+
+      final retained = first.todos.single;
+      expect(first.recurringTemplateById(template.id)?.archived, isTrue);
+      expect(retained.title, 'Final check-in');
+      expect(retained.sourceType, TodoSource.manual);
+      expect(retained.templateId, isNull);
+      expect(retained.taskDate, isNull);
+      expect(retained.dueAt, 2000);
+      expect(retained.reminderAt, 1500);
+      expect(retained.notes, 'Keep this task');
+
+      final events = await first.eventsAfterClock(await second.eventClock());
+      await second.applyRemoteEvents(events);
+      await second.ensureDailyRecurringTodos(
+        now: DateTime.now().add(const Duration(days: 1)),
+      );
+
+      expect(second.recurringTemplateById(template.id)?.archived, isTrue);
+      expect(second.todos, hasLength(1));
+      expect(second.todos.single.title, 'Final check-in');
+      expect(second.todos.single.sourceType, TodoSource.manual);
+      expect(second.todos.single.templateId, isNull);
+    },
+  );
+
   test('deleting custom list moves todos and templates into inbox', () async {
     final store = await TodoStore.openInMemoryForTesting(
       device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),

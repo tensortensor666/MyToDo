@@ -12,6 +12,8 @@ class TodoViewCounts {
   final int active;
   final int overdue;
   final int completed;
+
+  int get pending => active + overdue;
 }
 
 List<TodoItem> filterTodosByView(
@@ -29,6 +31,29 @@ List<TodoItem> filterTodosByView(
         };
       })
       .toList(growable: false);
+}
+
+List<TodoItem> filterTodosByCompactView(
+  List<TodoItem> todos,
+  TodoViewFilter filter,
+  int now,
+) {
+  if (filter != TodoViewFilter.active) {
+    return filterTodosByView(todos, filter, now);
+  }
+  final overdue = <TodoItem>[];
+  final current = <TodoItem>[];
+  for (final todo in todos) {
+    if (todo.completed) {
+      continue;
+    }
+    if (isTodoOverdue(todo, now)) {
+      overdue.add(todo);
+    } else {
+      current.add(todo);
+    }
+  }
+  return [...overdue, ...current];
 }
 
 TodoViewCounts countTodosByView(List<TodoItem> todos, int now) {

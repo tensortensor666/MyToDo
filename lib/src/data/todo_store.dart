@@ -641,6 +641,18 @@ CREATE TABLE IF NOT EXISTS savings_plans (
     return null;
   }
 
+  RecurringTemplate? recurringTemplateById(String? id) {
+    if (id == null) {
+      return null;
+    }
+    for (final template in _recurringTemplates) {
+      if (template.id == id) {
+        return template;
+      }
+    }
+    return null;
+  }
+
   List<TodoItem> visibleTodosForList(String listId) {
     switch (listId) {
       case TodoList.viewMyDayId:
@@ -790,6 +802,9 @@ CREATE TABLE IF NOT EXISTS savings_plans (
   }
 
   Future<void> archiveRecurringTemplate(RecurringTemplate template) async {
+    if (template.archived) {
+      return;
+    }
     final archived = template.copyWith(
       archived: true,
       updatedAt: DateTime.now().millisecondsSinceEpoch,
@@ -889,6 +904,7 @@ CREATE TABLE IF NOT EXISTS savings_plans (
     bool? important,
     String? notes,
     int? progress,
+    bool detachFromRecurringTemplate = false,
   }) async {
     final trimmed = title.trim();
     if (trimmed.isEmpty) {
@@ -899,31 +915,66 @@ CREATE TABLE IF NOT EXISTS savings_plans (
     final nextProgress = progress == null
         ? todo.progress
         : progress.clamp(0, 100);
+    final recurrenceChanged =
+        detachFromRecurringTemplate &&
+        (todo.templateId != null ||
+            todo.taskDate != null ||
+            todo.sourceType != TodoSource.manual);
     if (trimmed == todo.title &&
         dueAt == todo.dueAt &&
         reminderAt == todo.reminderAt &&
         listId == todo.listId &&
         nextImportant == todo.important &&
         nextNotes == todo.notes &&
-        nextProgress == todo.progress) {
+        nextProgress == todo.progress &&
+        !recurrenceChanged) {
       return;
     }
     final sortOrder = listId == todo.listId
         ? todo.sortOrder
         : await _nextTodoSortOrder(_db, listId);
-    await _writeLocalTodoEvent(
-      'todo.upsert',
-      todo.copyWith(
-        title: trimmed,
-        listId: listId,
-        dueAt: dueAt,
-        reminderAt: reminderAt,
-        important: nextImportant,
-        notes: nextNotes,
-        progress: nextProgress,
-        sortOrder: sortOrder,
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
-      ),
+    var updated = todo.copyWith(
+      title: trimmed,
+      listId: listId,
+      dueAt: dueAt,
+      reminderAt: reminderAt,
+      important: nextImportant,
+      notes: nextNotes,
+      progress: nextProgress,
+      sortOrder: sortOrder,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    if (detachFromRecurringTemplate) {
+      updated = updated.copyWith(
+        templateId: null,
+        taskDate: null,
+        sourceType: TodoSource.manual,
+      );
+    }
+    await _writeLocalTodoEvent('todo.upsert', updated);
+  }
+
+  Future<void> cancelTodoRecurrence(
+    TodoItem todo,
+    RecurringTemplate template, {
+    required String title,
+    required int? dueAt,
+    required int? reminderAt,
+    required String listId,
+    required String notes,
+  }) async {
+    if (todo.templateId != template.id) {
+      throw ArgumentError('Todo does not belong to the recurring template');
+    }
+    await archiveRecurringTemplate(template);
+    await updateTodo(
+      todo,
+      title: title,
+      dueAt: dueAt,
+      reminderAt: reminderAt,
+      listId: listId,
+      notes: notes,
+      detachFromRecurringTemplate: true,
     );
   }
 
