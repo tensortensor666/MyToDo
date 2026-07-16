@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1 - 2026-07-16
+
+- Unified the Windows task status switcher with Android around Current and Completed views.
+- Kept overdue tasks inside Current, prioritized them at the top, and added a shared overdue-only shortcut.
+- Applied the stronger overdue task styling and responsive status overview to Windows.
+
 ## 1.6.0 - 2026-07-14
 
 - Simplified the Android task status switcher to Current and Completed while keeping overdue tasks prioritized inside Current.
