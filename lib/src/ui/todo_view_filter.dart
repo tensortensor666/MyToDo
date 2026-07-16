@@ -33,7 +33,7 @@ List<TodoItem> filterTodosByView(
       .toList(growable: false);
 }
 
-List<TodoItem> filterTodosByCompactView(
+List<TodoItem> filterTodosByPriorityView(
   List<TodoItem> todos,
   TodoViewFilter filter,
   int now,

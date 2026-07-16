@@ -17,8 +17,7 @@ import 'src/ui/theme/app_theme.dart';
 import 'src/ui/nav_views.dart';
 import 'src/ui/important_toggle_button.dart';
 import 'src/ui/reorder_items.dart';
-import 'src/ui/todo_filter_tab_content.dart';
-import 'src/ui/todo_mobile_status_overview.dart';
+import 'src/ui/todo_status_overview.dart';
 import 'src/ui/todo_repeat_selector.dart';
 import 'src/ui/todo_view_filter.dart';
 import 'src/ui/todo_editor_delete_section.dart';
@@ -2270,9 +2269,7 @@ class _TodoContentPageState extends State<_TodoContentPage> {
     }
     final todos = widget.controller.store.visibleTodosForList(widget.entry.id);
     final now = DateTime.now().millisecondsSinceEpoch;
-    final filteredTodos = widget.compact
-        ? filterTodosByCompactView(todos, _filter, now)
-        : filterTodosByView(todos, _filter, now);
+    final filteredTodos = filterTodosByPriorityView(todos, _filter, now);
     final list = _TodoList(
       todos: filteredTodos,
       controller: widget.controller,
@@ -4241,7 +4238,7 @@ class _TodoPanelState extends State<_TodoPanel> {
   @override
   Widget build(BuildContext context) {
     final todos = widget.controller.store.todos;
-    final filteredTodos = filterTodosByView(
+    final filteredTodos = filterTodosByPriorityView(
       todos,
       _filter,
       DateTime.now().millisecondsSinceEpoch,
@@ -4297,158 +4294,13 @@ class _TodoOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final counts = countTodosByView(todos, now);
-    if (compact) {
-      return TodoMobileStatusOverview(
-        counts: counts,
-        selectedFilter: selectedFilter,
-        onFilterChanged: onFilterChanged,
-        accentColor: _appAccent,
-        successColor: _appSuccess,
-      );
-    }
-    final tiles = [
-      _OverviewTile(
-        label: '当前',
-        value: counts.active,
-        selected: selectedFilter == TodoViewFilter.active,
-        color: Theme.of(context).colorScheme.primary,
-        compact: compact,
-        onTap: () => onFilterChanged(TodoViewFilter.active),
-      ),
-      _OverviewTile(
-        label: '逾期',
-        value: counts.overdue,
-        selected: selectedFilter == TodoViewFilter.overdue,
-        color: Theme.of(context).colorScheme.error,
-        compact: compact,
-        onTap: () => onFilterChanged(TodoViewFilter.overdue),
-      ),
-      _OverviewTile(
-        label: '完成',
-        value: counts.completed,
-        selected: selectedFilter == TodoViewFilter.completed,
-        color: _appSuccess,
-        compact: compact,
-        onTap: () => onFilterChanged(TodoViewFilter.completed),
-      ),
-    ];
-    tiles.add(
-      _OverviewTile(
-        label: '全部',
-        value: todos.length,
-        selected: selectedFilter == TodoViewFilter.all,
-        color: _appForegroundSoft,
-        compact: compact,
-        onTap: () => onFilterChanged(TodoViewFilter.all),
-      ),
-    );
-    return Wrap(spacing: 10, runSpacing: 10, children: tiles);
-  }
-}
-
-class _OverviewTile extends StatelessWidget {
-  const _OverviewTile({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.selected,
-    required this.onTap,
-    this.compact = false,
-  });
-
-  final String label;
-  final int value;
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final background = compact
-        ? selected
-              ? _appSurface
-              : Colors.transparent
-        : selected
-        ? Color.lerp(_appSurface, _appSurfaceWarm, 0.66)
-        : _appSurface;
-    final borderColor = compact && !selected
-        ? Colors.transparent
-        : _appBorderSoft;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(compact ? 14 : 12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          width: compact ? null : null,
-          constraints: BoxConstraints(minHeight: compact ? 38 : 44),
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 10 : 14,
-            vertical: compact ? 8 : 10,
-          ),
-          decoration: BoxDecoration(
-            color: background,
-            border: Border.all(color: borderColor),
-            borderRadius: BorderRadius.circular(compact ? 14 : 12),
-            boxShadow: compact && selected
-                ? [
-                    BoxShadow(
-                      color: _appForeground.withValues(alpha: 0.06),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ]
-                : null,
-          ),
-          child: compact
-              ? Center(
-                  child: TodoFilterTabContent(
-                    label: label,
-                    count: value,
-                    color: color,
-                    accentColor: _appAccent,
-                    selected: selected,
-                  ),
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        label,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: selected ? _appForeground : _appMuted,
-                              fontWeight: selected
-                                  ? FontWeight.w800
-                                  : FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      value.toString(),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: selected ? _appForeground : color,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-      ),
+    return TodoStatusOverview(
+      counts: counts,
+      selectedFilter: selectedFilter,
+      onFilterChanged: onFilterChanged,
+      accentColor: _appAccent,
+      successColor: _appSuccess,
+      compact: compact,
     );
   }
 }
@@ -4660,7 +4512,6 @@ class _TodoTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final borderColor = _todoBorderColor(context, todo);
     final overdue =
-        compact &&
         !todo.deleted &&
         !todo.completed &&
         isTodoOverdue(todo, DateTime.now().millisecondsSinceEpoch);

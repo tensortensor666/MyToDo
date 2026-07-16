@@ -103,7 +103,7 @@ void main() {
     expect(counts.pending, 2);
   });
 
-  test('compact current includes overdue tasks and prioritizes them', () {
+  test('priority current includes overdue tasks and prioritizes them', () {
     const now = 1000;
     const todos = [
       TodoItem(
@@ -151,7 +151,7 @@ void main() {
     ];
 
     expect(
-      filterTodosByCompactView(
+      filterTodosByPriorityView(
         todos,
         TodoViewFilter.active,
         now,
@@ -159,7 +159,7 @@ void main() {
       ['overdue-1', 'overdue-2', 'current-1', 'current-2'],
     );
     expect(
-      filterTodosByCompactView(
+      filterTodosByPriorityView(
         todos,
         TodoViewFilter.completed,
         now,

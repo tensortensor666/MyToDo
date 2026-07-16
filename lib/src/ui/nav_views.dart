@@ -102,7 +102,7 @@ List<TodoNavEntry> buildNavEntries(TodoStore store) {
 String subtitleForView(String id) {
   switch (id) {
     case TodoList.viewMyDayId:
-      return '聚焦今天能推动结果的任务，其余内容留在清单里。';
+      return '逾期任务已优先置顶，先处理紧要事项，再完成今天的安排。';
     case TodoList.viewImportantId:
       return '标记为重要的任务';
     case TodoList.viewPlannedId:

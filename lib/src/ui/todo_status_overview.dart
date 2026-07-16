@@ -3,14 +3,15 @@ import 'package:flutter/material.dart';
 import 'todo_filter_tab_content.dart';
 import 'todo_view_filter.dart';
 
-class TodoMobileStatusOverview extends StatelessWidget {
-  const TodoMobileStatusOverview({
+class TodoStatusOverview extends StatelessWidget {
+  const TodoStatusOverview({
     super.key,
     required this.counts,
     required this.selectedFilter,
     required this.onFilterChanged,
     required this.accentColor,
     required this.successColor,
+    required this.compact,
   });
 
   final TodoViewCounts counts;
@@ -18,6 +19,7 @@ class TodoMobileStatusOverview extends StatelessWidget {
   final ValueChanged<TodoViewFilter> onFilterChanged;
   final Color accentColor;
   final Color successColor;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -25,54 +27,58 @@ class TodoMobileStatusOverview extends StatelessWidget {
     final pendingSelected =
         selectedFilter == TodoViewFilter.active ||
         selectedFilter == TodoViewFilter.overdue;
+    final tabs = Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: Color.lerp(scheme.surface, scheme.surfaceContainerHighest, 0.24),
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _StatusTab(
+              key: const ValueKey('todo-status-current-tab'),
+              label: '当前',
+              count: counts.pending,
+              color: scheme.primary,
+              accentColor: accentColor,
+              selected: pendingSelected,
+              onTap: () => onFilterChanged(TodoViewFilter.active),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: _StatusTab(
+              key: const ValueKey('todo-status-completed-tab'),
+              label: '完成',
+              count: counts.completed,
+              color: successColor,
+              accentColor: accentColor,
+              selected: selectedFilter == TodoViewFilter.completed,
+              onTap: () => onFilterChanged(TodoViewFilter.completed),
+            ),
+          ),
+        ],
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: Color.lerp(
-              scheme.surface,
-              scheme.surfaceContainerHighest,
-              0.24,
-            ),
-            border: Border.all(color: scheme.outlineVariant),
-            borderRadius: BorderRadius.circular(18),
+        if (compact)
+          tabs
+        else
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(width: 360, child: tabs),
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _MobileStatusTab(
-                  key: const ValueKey('todo-mobile-status-current-tab'),
-                  label: '当前',
-                  count: counts.pending,
-                  color: scheme.primary,
-                  accentColor: accentColor,
-                  selected: pendingSelected,
-                  onTap: () => onFilterChanged(TodoViewFilter.active),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _MobileStatusTab(
-                  key: const ValueKey('todo-mobile-status-completed-tab'),
-                  label: '完成',
-                  count: counts.completed,
-                  color: successColor,
-                  accentColor: accentColor,
-                  selected: selectedFilter == TodoViewFilter.completed,
-                  onTap: () => onFilterChanged(TodoViewFilter.completed),
-                ),
-              ),
-            ],
-          ),
-        ),
         if (selectedFilter != TodoViewFilter.completed &&
             counts.overdue > 0) ...[
           const SizedBox(height: 12),
           _OverduePriorityCard(
             count: counts.overdue,
             selected: selectedFilter == TodoViewFilter.overdue,
+            compact: compact,
             onTap: () => onFilterChanged(
               selectedFilter == TodoViewFilter.overdue
                   ? TodoViewFilter.active
@@ -85,8 +91,8 @@ class TodoMobileStatusOverview extends StatelessWidget {
   }
 }
 
-class _MobileStatusTab extends StatelessWidget {
-  const _MobileStatusTab({
+class _StatusTab extends StatelessWidget {
+  const _StatusTab({
     super.key,
     required this.label,
     required this.count,
@@ -154,11 +160,13 @@ class _OverduePriorityCard extends StatelessWidget {
   const _OverduePriorityCard({
     required this.count,
     required this.selected,
+    required this.compact,
     required this.onTap,
   });
 
   final int count;
   final bool selected;
+  final bool compact;
   final VoidCallback onTap;
 
   @override
@@ -172,13 +180,16 @@ class _OverduePriorityCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          key: const ValueKey('todo-mobile-overdue-priority'),
+          key: const ValueKey('todo-overdue-priority'),
           onTap: onTap,
           borderRadius: BorderRadius.circular(16),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
-            constraints: const BoxConstraints(minHeight: 76),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            constraints: BoxConstraints(minHeight: compact ? 76 : 72),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 12 : 14,
+              vertical: 11,
+            ),
             decoration: BoxDecoration(
               color: Color.lerp(
                 scheme.surface,
