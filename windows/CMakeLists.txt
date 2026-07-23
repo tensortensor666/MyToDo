@@ -57,6 +57,15 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# flutter_local_notifications_windows only uses ATL for the CW2A conversion
+# helper. Keep Windows builds reproducible on toolchains without the optional
+# Visual Studio ATL component by supplying a scoped compatibility header.
+if(TARGET flutter_local_notifications_windows)
+  target_include_directories(flutter_local_notifications_windows BEFORE PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/atl_compat"
+  )
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

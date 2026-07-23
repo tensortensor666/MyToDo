@@ -114,20 +114,6 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Install Visual C++ ATL
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
-          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installPath) {
-            throw 'Visual Studio C++ installation was not found.'
-          }
-          & $installer modify --installPath $installPath --add Microsoft.VisualStudio.Component.VC.ATL --quiet --norestart --nocache
-          if ($LASTEXITCODE -notin @(0, 3010)) {
-            throw "Visual C++ ATL installation failed with exit code $LASTEXITCODE."
-          }
-
       - name: Build Windows app
         run: flutter build windows --release
 
