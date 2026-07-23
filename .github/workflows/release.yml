@@ -115,7 +115,16 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows app
-        run: flutter build windows --release
+        shell: pwsh
+        run: |
+          & flutter build windows --release 2>&1 | Tee-Object -FilePath windows-build.log
+          $buildExitCode = $LASTEXITCODE
+          if ($buildExitCode -ne 0) {
+            $tail = (Get-Content windows-build.log -Tail 30) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error file=.github,line=1,title=Windows build failed::$escaped"
+            exit $buildExitCode
+          }
 
       - name: Install Inno Setup
         shell: pwsh
