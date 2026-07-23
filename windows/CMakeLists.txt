@@ -64,6 +64,9 @@ if(TARGET flutter_local_notifications_windows)
   target_include_directories(flutter_local_notifications_windows BEFORE PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/atl_compat"
   )
+  target_compile_definitions(flutter_local_notifications_windows PRIVATE
+    "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+  )
 endif()
 
 
