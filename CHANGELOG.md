@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0 - 2026-07-23
+
+- Added an always-on-top Windows task widget with tray and title-bar controls.
+- Added an Android home-screen widget for the current task snapshot, including one-tap pinning from Settings.
+- Kept widget task ordering consistent across lists and refreshed widget data after local changes.
+- Added Android widget regression coverage and Android core library desugaring for the notification dependency.
+- New tasks no longer receive an automatic end-of-day due date.
+
 ## 1.6.1 - 2026-07-16
 
 - Unified the Windows task status switcher with Android around Current and Completed views.

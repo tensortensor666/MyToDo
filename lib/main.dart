@@ -37,8 +37,8 @@ const Color _appBorderSoft = Color(0xFFE8E6DC);
 const Color _appWarn = Color(0xFFEAB308);
 const Color _appDanger = Color(0xFFB53333);
 const Color _appSuccess = Color(0xFF17A34A);
-const String _appVersionLabel = 'v1.6.1';
-const String _appBuildLabel = '构建 2026.07.16';
+const String _appVersionLabel = 'v1.7.0';
+const String _appBuildLabel = '构建 2026.07.23';
 const String _appDistributionLabel = 'Windows / Android 同步版';
 
 Future<void> main() async {
@@ -158,13 +158,21 @@ class TodoHome extends StatefulWidget {
 class _TodoHomeState extends State<TodoHome> {
   WindowsTrayController? _windowsTrayController;
   bool _syncingFromHome = false;
+  bool _windowsWidgetMode = false;
   String _selectedListId = TodoList.inboxId;
 
   @override
   void initState() {
     super.initState();
     if (Platform.isWindows && widget.enableWindowsTray) {
-      _windowsTrayController = WindowsTrayController(widget.controller);
+      _windowsTrayController = WindowsTrayController(
+        widget.controller,
+        onWidgetModeChanged: (enabled) {
+          if (mounted) {
+            setState(() => _windowsWidgetMode = enabled);
+          }
+        },
+      );
       unawaited(_windowsTrayController!.initialize());
     }
   }
@@ -178,6 +186,21 @@ class _TodoHomeState extends State<TodoHome> {
 
   @override
   Widget build(BuildContext context) {
+    if (_windowsWidgetMode) {
+      return AnimatedBuilder(
+        animation: widget.controller,
+        builder: (context, _) => _WindowsTodoWidget(
+          controller: widget.controller,
+          onOpenApp: () => unawaited(
+            _windowsTrayController?.exitWidgetMode() ?? Future<void>.value(),
+          ),
+          onHide: () => unawaited(
+            _windowsTrayController?.hideToTray() ?? Future<void>.value(),
+          ),
+          onAddTodo: () => unawaited(_openFullAppAndAddTodo()),
+        ),
+      );
+    }
     return Shortcuts(
       shortcuts: {
         const SingleActivator(LogicalKeyboardKey.keyN, control: true):
@@ -240,6 +263,12 @@ class _TodoHomeState extends State<TodoHome> {
                             : () => unawaited(_syncFromHome(showResult: true)),
                         onSyncPage: _openSyncPage,
                         onRefresh: _syncFromHome,
+                        onShowWidget: Platform.isWindows
+                            ? () => unawaited(
+                                _windowsTrayController?.enterWidgetMode() ??
+                                    Future<void>.value(),
+                              )
+                            : null,
                       );
                     },
                   ),
@@ -250,6 +279,13 @@ class _TodoHomeState extends State<TodoHome> {
         ),
       ),
     );
+  }
+
+  Future<void> _openFullAppAndAddTodo() async {
+    await _windowsTrayController?.exitWidgetMode();
+    if (mounted) {
+      await _showAddTodoDialog();
+    }
   }
 
   TodoNavEntry _selectedEntry(List<TodoNavEntry> entries) {
@@ -616,6 +652,287 @@ class _TodoHomeState extends State<TodoHome> {
   }
 }
 
+class _WindowsTodoWidget extends StatelessWidget {
+  const _WindowsTodoWidget({
+    required this.controller,
+    required this.onOpenApp,
+    required this.onHide,
+    required this.onAddTodo,
+  });
+
+  final AppController controller;
+  final VoidCallback onOpenApp;
+  final VoidCallback onHide;
+  final VoidCallback onAddTodo;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = controller.store;
+    final activeTodos = store.todos
+        .where((todo) => !todo.completed)
+        .take(5)
+        .toList(growable: false);
+    final activeCount = store.todos.where((todo) => !todo.completed).length;
+
+    return Scaffold(
+      backgroundColor: _appSurface,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: _appSurface,
+          border: Border.fromBorderSide(BorderSide(color: _appBorderSoft)),
+        ),
+        child: Column(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: (_) =>
+                  unawaited(window_manager.windowManager.startDragging()),
+              child: SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    const SizedBox(width: 14),
+                    const _AppMark(size: 24),
+                    const SizedBox(width: 9),
+                    const Expanded(
+                      child: Text(
+                        'MyTodo',
+                        style: TextStyle(
+                          color: _appForeground,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    _WidgetWindowButton(
+                      icon: Icons.open_in_full_rounded,
+                      tooltip: '打开完整应用',
+                      onPressed: onOpenApp,
+                    ),
+                    _WidgetWindowButton(
+                      icon: Icons.close_rounded,
+                      tooltip: '隐藏到托盘',
+                      onPressed: onHide,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: _appBorderSoft),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '当前任务',
+                          style: TextStyle(
+                            color: _appForeground,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          '按清单顺序显示',
+                          style: TextStyle(color: _appMuted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '$activeCount',
+                    semanticsLabel: '未完成任务 $activeCount 条',
+                    style: const TextStyle(
+                      color: _appAccent,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: activeTodos.isEmpty
+                  ? const _WindowsWidgetEmptyState()
+                  : ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      itemCount: activeTodos.length,
+                      separatorBuilder: (_, _) => const Divider(
+                        height: 1,
+                        indent: 48,
+                        color: _appBorder,
+                      ),
+                      itemBuilder: (context, index) {
+                        final todo = activeTodos[index];
+                        final listName = store.listById(todo.listId)?.name;
+                        return _WindowsWidgetTodoRow(
+                          todo: todo,
+                          listName: listName ?? '收件箱',
+                          onCompleted: () =>
+                              unawaited(store.setCompleted(todo, true)),
+                          onOpen: onOpenApp,
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+              child: SizedBox(
+                width: double.infinity,
+                height: 38,
+                child: FilledButton.icon(
+                  onPressed: onAddTodo,
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('添加任务'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _appAccent,
+                    foregroundColor: _appAccentOn,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WidgetWindowButton extends StatelessWidget {
+  const _WidgetWindowButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 16),
+        color: _appMuted,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+        splashRadius: 17,
+      ),
+    );
+  }
+}
+
+class _WindowsWidgetTodoRow extends StatelessWidget {
+  const _WindowsWidgetTodoRow({
+    required this.todo,
+    required this.listName,
+    required this.onCompleted,
+    required this.onOpen,
+  });
+
+  final TodoItem todo;
+  final String listName;
+  final VoidCallback onCompleted;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final dueAt = todo.dueAt;
+    final overdue =
+        dueAt != null && dueAt < DateTime.now().millisecondsSinceEpoch;
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        height: 58,
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: '标记为完成',
+              onPressed: onCompleted,
+              icon: const Icon(Icons.radio_button_unchecked_rounded, size: 21),
+              color: todo.important ? _appAccent : _appMuted,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 42, height: 42),
+              splashRadius: 19,
+            ),
+            const SizedBox(width: 2),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    todo.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _appForeground,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    dueAt == null
+                        ? listName
+                        : '$listName · ${overdue ? '已逾期' : _formatShortDateTime(dueAt)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: overdue ? _appDanger : _appMeta,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 17, color: _appMeta),
+            const SizedBox(width: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowsWidgetEmptyState extends StatelessWidget {
+  const _WindowsWidgetEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.task_alt_rounded, size: 38, color: _appSuccess),
+          SizedBox(height: 10),
+          Text(
+            '任务已清空',
+            style: TextStyle(
+              color: _appForeground,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FluentTodoNavigationLayout extends StatefulWidget {
   const _FluentTodoNavigationLayout({
     required this.entries,
@@ -631,6 +948,7 @@ class _FluentTodoNavigationLayout extends StatefulWidget {
     required this.onSync,
     required this.onSyncPage,
     required this.onRefresh,
+    this.onShowWidget,
   });
 
   final List<TodoNavEntry> entries;
@@ -646,6 +964,7 @@ class _FluentTodoNavigationLayout extends StatefulWidget {
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final Future<void> Function() onRefresh;
+  final VoidCallback? onShowWidget;
 
   @override
   State<_FluentTodoNavigationLayout> createState() =>
@@ -691,6 +1010,7 @@ class _FluentTodoNavigationLayoutState
       onSync: widget.onSync,
       onSyncPage: widget.onSyncPage,
       onRefresh: widget.onRefresh,
+      onShowWidget: widget.onShowWidget,
     );
   }
 }
@@ -711,6 +1031,7 @@ class _DesktopTodoShell extends StatelessWidget {
     required this.onSync,
     required this.onSyncPage,
     required this.onRefresh,
+    required this.onShowWidget,
   });
 
   final List<TodoNavEntry> entries;
@@ -727,10 +1048,12 @@ class _DesktopTodoShell extends StatelessWidget {
   final VoidCallback? onSync;
   final VoidCallback onSyncPage;
   final Future<void> Function() onRefresh;
+  final VoidCallback? onShowWidget;
 
   @override
   Widget build(BuildContext context) {
     return _DesktopWindowFrame(
+      onShowWidget: onShowWidget,
       child: Row(
         children: [
           AnimatedContainer(
@@ -772,9 +1095,10 @@ class _DesktopTodoShell extends StatelessWidget {
 }
 
 class _DesktopWindowFrame extends StatefulWidget {
-  const _DesktopWindowFrame({required this.child});
+  const _DesktopWindowFrame({required this.child, this.onShowWidget});
 
   final Widget child;
+  final VoidCallback? onShowWidget;
 
   @override
   State<_DesktopWindowFrame> createState() => _DesktopWindowFrameState();
@@ -860,6 +1184,7 @@ class _DesktopWindowFrameState extends State<_DesktopWindowFrame>
                 _DesktopWindowTitleBar(
                   isMaximized: _isMaximized,
                   onToggleMaximize: _toggleMaximize,
+                  onShowWidget: widget.onShowWidget,
                 ),
               Expanded(child: widget.child),
             ],
@@ -874,10 +1199,12 @@ class _DesktopWindowTitleBar extends StatelessWidget {
   const _DesktopWindowTitleBar({
     required this.isMaximized,
     required this.onToggleMaximize,
+    required this.onShowWidget,
   });
 
   final bool isMaximized;
   final Future<void> Function() onToggleMaximize;
+  final VoidCallback? onShowWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -915,6 +1242,12 @@ class _DesktopWindowTitleBar extends StatelessWidget {
               ),
             ),
           ),
+          if (onShowWidget != null)
+            _WindowControlButton(
+              tooltip: '小组件模式',
+              icon: Icons.view_agenda_outlined,
+              onTap: onShowWidget!,
+            ),
           _WindowControlButton(
             tooltip: '最小化',
             icon: Icons.minimize,
@@ -6059,6 +6392,16 @@ class _SettingsSurfaceState extends State<_SettingsSurface> {
     );
   }
 
+  Future<void> _requestHomeWidget() async {
+    final accepted = await widget.controller.todoWidget.requestPin();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(accepted ? '已打开桌面小组件确认' : '当前桌面不支持直接添加小组件')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -6091,6 +6434,10 @@ class _SettingsSurfaceState extends State<_SettingsSurface> {
             ),
             const SizedBox(height: 14),
             _SettingsUpdateCard(onCheckUpdate: widget.onCheckUpdate),
+            if (Platform.isAndroid) ...[
+              const SizedBox(height: 14),
+              _SettingsHomeWidgetCard(onAdd: _requestHomeWidget),
+            ],
             const SizedBox(height: 14),
             const _SettingsFooter(),
           ],
@@ -6186,6 +6533,46 @@ class _SettingsUpdateCard extends StatelessWidget {
                 label: const Text('检查更新'),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsHomeWidgetCard extends StatelessWidget {
+  const _SettingsHomeWidgetCard({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsCard(
+      child: Row(
+        children: [
+          const Icon(Icons.widgets_outlined, color: _appAccent, size: 24),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _KickerText('桌面小组件'),
+                SizedBox(height: 4),
+                Text(
+                  '当前任务 · 最多 5 条',
+                  style: TextStyle(
+                    color: _appForeground,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: onAdd,
+            icon: const Icon(Icons.add_to_home_screen_rounded, size: 17),
+            label: const Text('添加'),
           ),
         ],
       ),

@@ -3,23 +3,14 @@ import 'package:mytodo/src/data/todo_models.dart';
 import 'package:mytodo/src/ui/nav_views.dart';
 
 void main() {
-  test('new todo defaults to the end of today from every view', () {
+  test('new todo has no default due date from every view', () {
     final now = DateTime(2026, 7, 6, 10, 30);
 
-    final expected = DateTime(
-      2026,
-      7,
-      6,
-      23,
-      59,
-      59,
-      999,
-    ).millisecondsSinceEpoch;
-    expect(defaultDueAtForNewTodoView(TodoList.viewMyDayId, now), expected);
-    expect(defaultDueAtForNewTodoView(TodoList.viewPlannedId, now), expected);
-    expect(defaultDueAtForNewTodoView(TodoList.inboxId, now), expected);
-    expect(defaultDueAtForNewTodoView(TodoList.viewImportantId, now), expected);
-    expect(defaultDueAtForNewTodoView('custom-list', now), expected);
+    expect(defaultDueAtForNewTodoView(TodoList.viewMyDayId, now), isNull);
+    expect(defaultDueAtForNewTodoView(TodoList.viewPlannedId, now), isNull);
+    expect(defaultDueAtForNewTodoView(TodoList.inboxId, now), isNull);
+    expect(defaultDueAtForNewTodoView(TodoList.viewImportantId, now), isNull);
+    expect(defaultDueAtForNewTodoView('custom-list', now), isNull);
   });
 
   test(

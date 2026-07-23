@@ -851,7 +851,7 @@ CREATE TABLE IF NOT EXISTS savings_plans (
           taskDate: today,
           sourceType: TodoSource.recurring,
           notes: template.notes,
-          sortOrder: await _nextTodoSortOrder(txn, template.listId),
+          sortOrder: await _nextTodoSortOrder(txn),
         );
         await txn.insert('todos', todo.toDb());
         inserted = true;
@@ -876,7 +876,7 @@ CREATE TABLE IF NOT EXISTS savings_plans (
       return;
     }
     final now = DateTime.now().millisecondsSinceEpoch;
-    final sortOrder = await _nextTodoSortOrder(_db, listId);
+    final sortOrder = await _nextTodoSortOrder(_db);
     final todo = TodoItem(
       id: _uuid.v4(),
       title: trimmed,
@@ -932,7 +932,7 @@ CREATE TABLE IF NOT EXISTS savings_plans (
     }
     final sortOrder = listId == todo.listId
         ? todo.sortOrder
-        : await _nextTodoSortOrder(_db, listId);
+        : await _nextTodoSortOrder(_db);
     var updated = todo.copyWith(
       title: trimmed,
       listId: listId,
@@ -1290,10 +1290,9 @@ CREATE TABLE IF NOT EXISTS savings_plans (
     await reload();
   }
 
-  Future<int> _nextTodoSortOrder(DatabaseExecutor db, String listId) async {
+  Future<int> _nextTodoSortOrder(DatabaseExecutor db) async {
     final rows = await db.rawQuery(
-      'SELECT MAX(sort_order) AS max_sort FROM todos WHERE deleted = 0 AND list_id = ?',
-      [listId],
+      'SELECT MAX(sort_order) AS max_sort FROM todos WHERE deleted = 0',
     );
     final maxSort = rows.first['max_sort'] as int?;
     return (maxSort ?? 0) + 1000;

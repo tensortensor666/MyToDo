@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show ValueChanged, kIsWeb;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -33,12 +33,19 @@ Future<void> initializeWindowsWindow() async {
 }
 
 class WindowsTrayController with TrayListener, WindowListener {
-  WindowsTrayController(this.controller);
+  WindowsTrayController(this.controller, {required this.onWidgetModeChanged});
 
   final AppController controller;
+  final ValueChanged<bool> onWidgetModeChanged;
   bool _initialized = false;
   bool _quitting = false;
   bool _refreshQueued = false;
+  bool _widgetMode = false;
+  bool _fullWindowWasMaximized = false;
+  Size? _fullWindowSize;
+  Offset? _fullWindowPosition;
+
+  bool get widgetMode => _widgetMode;
 
   Future<void> initialize() async {
     if (kIsWeb || !Platform.isWindows || _initialized) {
@@ -93,7 +100,11 @@ class WindowsTrayController with TrayListener, WindowListener {
             disabled: true,
           ),
           MenuItem.separator(),
-          MenuItem(key: 'show', label: '打开 MyTodo'),
+          MenuItem(
+            key: 'show',
+            label: _widgetMode ? '打开完整 MyTodo' : '打开 MyTodo',
+          ),
+          MenuItem(key: 'widget', label: _widgetMode ? '退出小组件模式' : '显示桌面小组件'),
           MenuItem(key: 'sync', label: '立即远程同步'),
           MenuItem(key: 'hide', label: '隐藏到托盘'),
           MenuItem.separator(),
@@ -107,11 +118,68 @@ class WindowsTrayController with TrayListener, WindowListener {
     if (kIsWeb || !Platform.isWindows || _quitting) {
       return;
     }
-    await windowManager.setSkipTaskbar(false);
+    await windowManager.setSkipTaskbar(_widgetMode);
     await windowManager.show();
     await windowManager.restore();
     await windowManager.focus();
     await _refreshTrayPresentation();
+  }
+
+  Future<void> enterWidgetMode() async {
+    if (kIsWeb || !Platform.isWindows || _quitting || _widgetMode) {
+      return;
+    }
+    _fullWindowSize = await windowManager.getSize();
+    _fullWindowPosition = await windowManager.getPosition();
+    _fullWindowWasMaximized = await windowManager.isMaximized();
+    if (_fullWindowWasMaximized) {
+      await windowManager.unmaximize();
+    }
+    _widgetMode = true;
+    onWidgetModeChanged(true);
+    await windowManager.setResizable(true);
+    await windowManager.setMinimumSize(const Size(320, 400));
+    await windowManager.setSize(const Size(360, 520), animate: true);
+    await windowManager.setResizable(false);
+    await windowManager.setAlwaysOnTop(true);
+    await windowManager.setSkipTaskbar(true);
+    await windowManager.show();
+    await windowManager.focus();
+    await _refreshTrayPresentation();
+  }
+
+  Future<void> exitWidgetMode() async {
+    if (kIsWeb || !Platform.isWindows || _quitting || !_widgetMode) {
+      return;
+    }
+    _widgetMode = false;
+    onWidgetModeChanged(false);
+    await windowManager.setResizable(true);
+    await windowManager.setMinimumSize(const Size(900, 560));
+    await windowManager.setSize(
+      _fullWindowSize ?? const Size(1180, 760),
+      animate: true,
+    );
+    final position = _fullWindowPosition;
+    if (!_fullWindowWasMaximized && position != null) {
+      await windowManager.setPosition(position, animate: true);
+    }
+    await windowManager.setAlwaysOnTop(false);
+    await windowManager.setSkipTaskbar(false);
+    await windowManager.show();
+    if (_fullWindowWasMaximized) {
+      await windowManager.maximize();
+    }
+    await windowManager.focus();
+    await _refreshTrayPresentation();
+  }
+
+  Future<void> toggleWidgetMode() async {
+    if (_widgetMode) {
+      await exitWidgetMode();
+    } else {
+      await enterWidgetMode();
+    }
   }
 
   Future<void> hideToTray() async {
@@ -156,7 +224,10 @@ class WindowsTrayController with TrayListener, WindowListener {
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
-        unawaited(showWindow());
+        unawaited(_widgetMode ? exitWidgetMode() : showWindow());
+        break;
+      case 'widget':
+        unawaited(toggleWidgetMode());
         break;
       case 'sync':
         unawaited(_syncFromTray());

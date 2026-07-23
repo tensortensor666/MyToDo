@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MyTodo</string>
+    <string name="widget_name">MyTodo 当前任务</string>
+    <string name="widget_description">在桌面查看当前未完成任务</string>
+    <string name="widget_empty">任务已清空</string>
+    <string name="widget_open_task">打开任务</string>
+</resources>

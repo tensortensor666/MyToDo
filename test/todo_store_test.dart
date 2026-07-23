@@ -187,6 +187,22 @@ void main() {
     );
   });
 
+  test('new todos append to the end across different lists', () async {
+    final store = await _freshStore('device-a');
+    final work = await store.createTodoList('Work');
+    final life = await store.createTodoList('Life');
+
+    await store.createTodo('First work task', listId: work.id);
+    await store.createTodo('Second work task', listId: work.id);
+    await store.createTodo('Life task', listId: life.id);
+    await store.createTodo('Newest inbox task');
+
+    expect(
+      store.visibleTodosForList(TodoList.inboxId).map((todo) => todo.title),
+      ['First work task', 'Second work task', 'Life task', 'Newest inbox task'],
+    );
+  });
+
   test('todo can store due date and reminder time', () async {
     final store = await TodoStore.openInMemoryForTesting(
       device: const LocalDevice(deviceId: 'device-a', name: 'Device A'),

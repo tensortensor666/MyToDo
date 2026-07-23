@@ -115,15 +115,7 @@ String subtitleForView(String id) {
 }
 
 int? defaultDueAtForNewTodoView(String selectedListId, DateTime now) {
-  return DateTime(
-    now.year,
-    now.month,
-    now.day,
-    23,
-    59,
-    59,
-    999,
-  ).millisecondsSinceEpoch;
+  return null;
 }
 
 String targetListIdForNewTodoView(String selectedListId) {

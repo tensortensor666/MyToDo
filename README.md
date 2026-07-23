@@ -41,6 +41,8 @@ MyTodo is a local-first Flutter TODO app for Windows and Android. It stores data
 
 ### Desktop
 - Two-pane layout with list navigation and task detail.
+- Always-on-top Windows task widget, available from the title bar or tray.
+- Android home-screen widget with one-tap pinning from Settings.
 - Windows system tray with show, hide, sync, and quit actions.
 - Windows 11 Fluent Design style with a warm minimal color scheme.
 - In-app update checking with GitHub downloads and domestic mirror options.
@@ -70,9 +72,9 @@ flutter build windows --release
 Push a version tag to build and publish a GitHub Release automatically:
 
 ```powershell
-git tag -a v1.6.1 -m "MyTodo 1.6.1"
+git tag -a v1.7.0 -m "MyTodo 1.7.0"
 git push origin main
-git push origin v1.6.1
+git push origin v1.7.0
 ```
 
 The [release workflow](.github/workflows/release.yml) uploads split Android APKs, a Windows x64 zip, a Windows installer, and SHA256 checksums.
